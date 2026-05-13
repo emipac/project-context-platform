@@ -1,0 +1,14 @@
+{
+  "name": "@pcp/web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

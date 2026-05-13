@@ -1,0 +1,56 @@
+{
+  "name": "@emipac/project-context-platform",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Local-first project memory and MCP context platform for AI-assisted software teams.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "bin": {
+    "project-context": "dist/package/project-context.js",
+    "project-context-mcp": "dist/package/project-context-mcp.js",
+    "project-context-api": "dist/package/project-context-api.js"
+  },
+  "files": [
+    "dist/package",
+    "README.md",
+    "LICENSE",
+    ".env.example",
+    "docker-compose.yml",
+    "docs",
+    "services"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/core packages/infra packages/api packages/mcp-server packages/cli packages/web",
+    "build:package": "node scripts/build-package.mjs",
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --test tests/*.test.mjs",
+    "prepack": "npm run typecheck && npm test && npm run build:package",
+    "api:dev": "tsx packages/api/src/server.ts",
+    "mcp:dev": "NODE_OPTIONS=--no-warnings tsx packages/mcp-server/src/server.ts",
+    "cli": "NODE_OPTIONS=--no-warnings tsx packages/cli/src/index.ts"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "commander": "^12.1.0",
+    "fastify": "^5.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.27.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

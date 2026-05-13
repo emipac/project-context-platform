@@ -1,0 +1,8 @@
+{
+  "name": "@pcp/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "project-context": "dist/index.js"
+  }
+}

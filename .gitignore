@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.project-context/
+project-catalog.json
+spdd/
+requirements/
