@@ -5,6 +5,8 @@ dist/
 .env.*
 !.env.example
 .project-context/
+.cursor/
+.vscode/
 project-catalog.json
 spdd/
 requirements/
