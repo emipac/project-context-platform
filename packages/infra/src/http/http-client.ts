@@ -63,7 +63,8 @@ export class JsonHttpClient {
 }
 
 function upstreamError(status: number, payload: unknown, project_id?: string): PlatformError {
-  const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const raw = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const body = raw.detail && typeof raw.detail === "object" ? raw.detail as Record<string, unknown> : raw;
   const code = typeof body.code === "string" ? body.code : status >= 500 ? "BACKEND_UNAVAILABLE" : "VALIDATION_ERROR";
   const message = typeof body.message === "string" ? body.message : "External service request failed.";
   return new PlatformError(code, message, {

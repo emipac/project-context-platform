@@ -15,10 +15,14 @@ export class LightRagHttpAdapter implements LightRagAdapter {
   constructor(options: LightRagHttpAdapterOptions = {}) {
     this.client = new JsonHttpClient({
       baseUrl: options.baseUrl ?? process.env.LIGHTRAG_BASE_URL ?? "http://127.0.0.1:9621",
-      timeoutMs: options.timeoutMs ?? Number(process.env.LIGHTRAG_TIMEOUT_MS ?? 5000),
+      timeoutMs: options.timeoutMs ?? Number(process.env.LIGHTRAG_TIMEOUT_MS ?? 60000),
       retries: 1
     });
     this.healthPath = options.healthPath ?? process.env.LIGHTRAG_HEALTH_PATH ?? "/health";
+  }
+
+  async getHealth(project_id?: string): Promise<Record<string, unknown>> {
+    return this.client.get<Record<string, unknown>>(this.healthPath, project_id);
   }
 
   async searchDocs(project_id: string, query: string, opts: Record<string, unknown> = {}): Promise<CanonicalDocumentChunk[]> {
@@ -58,7 +62,7 @@ export class LightRagHttpAdapter implements LightRagAdapter {
 
   async ping(project_id?: string): Promise<boolean> {
     try {
-      await this.client.get(this.healthPath, project_id);
+      await this.getHealth(project_id);
       return true;
     } catch {
       return false;

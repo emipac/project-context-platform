@@ -7,6 +7,19 @@ import { ProjectWorkspaceService } from "@pcp/core";
 export class LocalLightRagAdapter implements LightRagAdapter {
   constructor(private readonly workspaces: ProjectWorkspaceService, private readonly repository: MetadataRepository) {}
 
+  async getHealth(): Promise<Record<string, unknown>> {
+    return {
+      status: "ok",
+      engine: "lightrag",
+      backend: "local",
+      llm_configured: false,
+      embedding_configured: false,
+      storage_ready: true,
+      graph_ready: null,
+      migration_available: false
+    };
+  }
+
   async searchDocs(project_id: string, query: string, opts: Record<string, unknown> = {}): Promise<CanonicalDocumentChunk[]> {
     const limit = Number(opts.limit ?? 10);
     const terms = query.toLowerCase().split(/\W+/).filter(Boolean);

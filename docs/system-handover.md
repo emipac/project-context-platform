@@ -69,6 +69,58 @@ CLI / REST API / MCP / Web UI
   -> per-project .project-context state
 ```
 
+### Runtime Lifecycle
+
+The platform intentionally runs its own PCP-facing LightRAG and Graphiti
+sidecars. The LightRAG container is not the official `lightrag-server` Web UI
+process, and this setup does not use an external vector database. The LightRAG
+sidecar exposes the PCP `/v1/...` HTTP contract and stores core-mode retrieval
+state in the `lightrag-data` Docker volume.
+
+Project document indexing flows through LightRAG:
+
+```text
+CLI / UI / MCP ingest request
+  -> REST API
+  -> IngestionService scans configured project files
+  -> stable IDs are extracted and written to project metadata
+  -> file path, content, heading, and stable IDs are sent to LightRAG
+  -> LightRAG chunks documents, calls the embedding model, and performs
+     LLM-backed entity/relation extraction
+  -> LightRAG stores chunks, embeddings, graph state, caches, and document
+     status under /data/projects/<safe-project-id>
+  -> PCP keeps manifest metadata so retrieval results can be mapped back to
+     project files and stable IDs
+```
+
+Project search and context retrieval also flow through LightRAG:
+
+```text
+UI / REST / MCP search request
+  -> REST API
+  -> RetrievalService / ContextComposerService
+  -> LightRAG sidecar /v1/search, /v1/spec-context, /v1/related-code, etc.
+  -> LightRAG performs graph/vector retrieval from its local persisted state
+  -> sidecar returns PCP-style chunks with source paths, content, and stable IDs
+```
+
+Memory, decisions, facts, and review history flow through Graphiti instead:
+
+```text
+UI / REST / MCP memory request
+  -> REST API
+  -> TemporalMemoryService
+  -> Graphiti sidecar
+  -> Graphiti stores memory episodes/facts/decisions
+  -> in core mode, Graphiti uses Neo4j plus JSON audit ledgers
+```
+
+LightRAG-indexed project documents are not automatically sent to Graphiti.
+Graphiti memory is created only through the memory/decision/review APIs. When an
+agent asks for implementation context, PCP composes the two sources at the
+service layer: LightRAG supplies document and code context, while Graphiti
+supplies durable project memory.
+
 ## 3. Repository Setup
 
 ### Prerequisites
@@ -106,21 +158,48 @@ PCP_METADATA_PATH=.project-context/metadata.sqlite
 PCP_TOOL_CALL_LOG_PATH=.project-context/tool-calls.jsonl
 PCP_ADAPTER_MODE=http
 LIGHTRAG_BASE_URL=http://127.0.0.1:9621
+LIGHTRAG_TIMEOUT_MS=60000
+LIGHTRAG_BACKEND=contract
+LIGHTRAG_LLM_PROVIDER=openai
+LIGHTRAG_LLM_MODEL=gpt-4o-mini
+LIGHTRAG_EMBEDDING_MODEL=text-embedding-3-small
+LIGHTRAG_EMBEDDING_DIM=1536
+LIGHTRAG_QUERY_MODE=hybrid
+LIGHTRAG_MAX_ASYNC=4
+LIGHTRAG_MAX_PARALLEL_INSERT=2
+LIGHTRAG_TOP_K=40
+LIGHTRAG_CHUNK_TOP_K=16
+LIGHTRAG_MAX_TOTAL_TOKENS=20000
 GRAPHITI_BASE_URL=http://127.0.0.1:8091
+GRAPHITI_TIMEOUT_MS=60000
+GRAPHITI_BACKEND=contract
+GRAPHITI_LLM_PROVIDER=openai
+GRAPHITI_LLM_MODEL=gpt-4o-mini
+GRAPHITI_SMALL_LLM_MODEL=gpt-4o-mini
+GRAPHITI_EMBEDDING_MODEL=text-embedding-3-small
+GRAPHITI_CONCURRENCY_LIMIT=2
+NEO4J_URI=bolt://127.0.0.1:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=project-context
 OPENAI_API_KEY=
-GRAPHITI_ENABLE_CORE=false
 ALLOW_REMOTE_BIND=false
 ```
 
-`GRAPHITI_ENABLE_CORE=false` keeps the Graphiti sidecar in lightweight JSON
-contract mode. Set it to `true` only when Neo4j and LLM credentials are ready.
+`LIGHTRAG_BACKEND=contract` and `GRAPHITI_BACKEND=contract` keep sidecars in
+lightweight JSON contract mode. Core mode is explicit and uses
+`LIGHTRAG_BACKEND=core` or `GRAPHITI_BACKEND=core`; an `OPENAI_API_KEY` alone
+does not activate LLM-backed behavior. LightRAG and Graphiti core modes both
+have sidecar engine implementations behind the same HTTP contracts.
+
+LightRAG core `/v1/ingest` honors `mode`: full scans reconcile manifest paths against the supplied path list (removals trigger LightRAG deletes plus stale manifest rows), whereas changed/document jobs reconcile only the paths included with payloads (matching SHA-256 content hashes skip redundant inserts). Whole-project cleanup remains `DELETE /v1/projects/{project_id}` via platform deletion flows.
+Sidecar `/health` exposes additive retrieval diagnostics (`query_mode`, embedding metadata, and `tuning` budgets from `LIGHTRAG_MAX_ASYNC`, `LIGHTRAG_MAX_PARALLEL_INSERT`, `LIGHTRAG_TOP_K`, `LIGHTRAG_CHUNK_TOP_K`, `LIGHTRAG_MAX_TOTAL_TOKENS`) without issuing LLM or embedding requests.
 
 ## 4. Start the System
 
 ### Start Python Sidecars and Neo4j
 
 ```bash
-docker compose up -d neo4j lightrag graphiti
+docker compose up -d --build neo4j lightrag graphiti
 docker compose ps
 ```
 
@@ -162,11 +241,27 @@ Expected healthy response:
   "adapter_mode": "http",
   "sqlite": true,
   "lightrag": true,
-  "graphiti": true
+  "graphiti": true,
+  "sidecars": {
+    "lightrag": {
+      "status": "ok",
+      "backend": "contract",
+      "core_implemented": false,
+      "reachable": true
+    },
+    "graphiti": {
+      "status": "ok",
+      "backend": "contract",
+      "core_implemented": false,
+      "reachable": true
+    }
+  }
 }
 ```
 
 If a sidecar is down, status becomes `degraded`.
+In core mode, each sidecar should report `"backend": "core"` and
+`"core_implemented": true`; Graphiti should also report `"graph_ready": true`.
 
 ### Start the Web UI
 
@@ -361,6 +456,12 @@ Inside the sidecar, contract-mode chunks are stored as:
 /data/<project-id>-chunks.json
 ```
 
+In LightRAG core mode, per-project core state is stored under:
+
+```text
+/data/projects/<safe-project-id>
+```
+
 Code:
 
 - `services/lightrag/app.py`
@@ -378,6 +479,9 @@ Contract-mode memory events are stored as:
 ```text
 /data/<project-id>-events.json
 ```
+
+Graphiti core mode uses Neo4j graph storage and keeps JSON event files as audit
+and migration ledgers.
 
 Neo4j data is stored in:
 
@@ -703,7 +807,9 @@ If Cursor shows empty arrays from retrieval tools, check:
 2. The selected project has been ingested.
 3. The project's `.project-context/config.yml` includes the desired paths.
 4. LightRAG sidecar health is `ok`.
-5. The query is not restricted to document types that do not exist.
+5. The API `/health.sidecars.lightrag.backend` value matches the intended
+   runtime mode.
+6. The query is not restricted to document types that do not exist.
 
 ## 15. UI Notes
 
@@ -764,15 +870,29 @@ Code:
 | `PCP_TOOL_CALL_LOG_PATH=.project-context/tool-calls.jsonl` | Fallback tool-call log path | `packages/infra/src/jsonl-tool-call-logger.ts` |
 | `PCP_ADAPTER_MODE=http` | `http` uses sidecars, `local` uses fallback adapters | `packages/infra/src/app-services.ts` |
 | `LIGHTRAG_BASE_URL=http://127.0.0.1:9621` | LightRAG adapter URL | `packages/infra/src/http/lightrag-http-adapter.ts` |
-| `LIGHTRAG_TIMEOUT_MS=5000` | LightRAG HTTP timeout | `packages/infra/src/http/lightrag-http-adapter.ts` |
+| `LIGHTRAG_TIMEOUT_MS=60000` | LightRAG HTTP timeout | `packages/infra/src/http/lightrag-http-adapter.ts` |
 | `LIGHTRAG_HEALTH_PATH=/health` | LightRAG health endpoint | `packages/infra/src/http/lightrag-http-adapter.ts` |
+| `LIGHTRAG_BACKEND=contract` | LightRAG sidecar mode: `contract` or `core` | `services/lightrag/config.py` |
+| `LIGHTRAG_LLM_MODEL=gpt-4o-mini` | LightRAG core LLM model | `services/lightrag/config.py` |
+| `LIGHTRAG_EMBEDDING_MODEL=text-embedding-3-small` | LightRAG core embedding model | `services/lightrag/config.py` |
+| `LIGHTRAG_EMBEDDING_DIM=1536` | LightRAG core embedding dimension | `services/lightrag/config.py` |
+| `LIGHTRAG_QUERY_MODE=hybrid` | LightRAG core query mode | `services/lightrag/config.py` |
+| `LIGHTRAG_MAX_ASYNC=4` | LightRAG LLM concurrency ceiling (`llm_model_max_async`) | `services/lightrag/lightrag_engine.py` |
+| `LIGHTRAG_MAX_PARALLEL_INSERT=2` | LightRAG parallel document insert ceiling | `services/lightrag/lightrag_engine.py` |
+| `LIGHTRAG_TOP_K=40` | LightRAG QueryParam entity/relation retrieval budget | `services/lightrag/lightrag_engine.py` |
+| `LIGHTRAG_CHUNK_TOP_K=16` | LightRAG QueryParam chunk retrieval budget | `services/lightrag/lightrag_engine.py` |
+| `LIGHTRAG_MAX_TOTAL_TOKENS=20000` | LightRAG QueryParam total context token budget | `services/lightrag/lightrag_engine.py` |
 | `GRAPHITI_BASE_URL=http://127.0.0.1:8091` | Graphiti adapter URL | `packages/infra/src/http/graphiti-http-adapter.ts` |
-| `GRAPHITI_TIMEOUT_MS=5000` | Graphiti HTTP timeout | `packages/infra/src/http/graphiti-http-adapter.ts` |
+| `GRAPHITI_TIMEOUT_MS=60000` | Graphiti HTTP timeout | `packages/infra/src/http/graphiti-http-adapter.ts` |
 | `GRAPHITI_HEALTH_PATH=/health` | Graphiti health endpoint | `packages/infra/src/http/graphiti-http-adapter.ts` |
+| `GRAPHITI_BACKEND=contract` | Graphiti sidecar mode: `contract` or `core` | `services/graphiti/config.py` |
+| `GRAPHITI_LLM_MODEL=gpt-4o-mini` | Graphiti core main LLM model | `services/graphiti/config.py` |
+| `GRAPHITI_SMALL_LLM_MODEL=gpt-4o-mini` | Graphiti core small LLM model | `services/graphiti/config.py` |
+| `GRAPHITI_EMBEDDING_MODEL=text-embedding-3-small` | Graphiti core embedding model | `services/graphiti/config.py` |
+| `GRAPHITI_CONCURRENCY_LIMIT=2` | Graphiti core provider concurrency limit | `services/graphiti/config.py` |
 | `VITE_API_BASE_URL=http://127.0.0.1:4318` | UI dev proxy target | `packages/web/vite.config.ts` |
 | `LIGHTRAG_DATA_DIR=/data` | LightRAG sidecar data directory | `services/lightrag/app.py`, `docker-compose.yml` |
 | `GRAPHITI_DATA_DIR=/data` | Graphiti sidecar data directory | `services/graphiti/app.py`, `docker-compose.yml` |
-| `GRAPHITI_ENABLE_CORE=false` | Enable Graphiti core/Neo4j initialization | `services/graphiti/app.py`, `docker-compose.yml` |
 | `NEO4J_URI=bolt://neo4j:7687` | Graphiti container Neo4j URL | `docker-compose.yml` |
 | `NEO4J_USER=neo4j` | Neo4j user | `docker-compose.yml` |
 | `NEO4J_PASSWORD=project-context` | Neo4j password | `docker-compose.yml` |
@@ -825,7 +945,7 @@ Docker validation:
 
 ```bash
 docker compose config
-docker compose up -d neo4j lightrag graphiti
+docker compose up -d --build neo4j lightrag graphiti
 docker compose ps
 ```
 
@@ -926,7 +1046,7 @@ Before handing the system to another developer:
 
 1. Run `npm install`.
 2. Create `.env` from `.env.example`.
-3. Start Docker sidecars with `docker compose up -d neo4j lightrag graphiti`.
+3. Start Docker sidecars with `docker compose up -d --build neo4j lightrag graphiti`.
 4. Start API with `npm run api:dev`.
 5. Start UI with `npm run --workspace @pcp/web dev`.
 6. Register at least one project.
@@ -953,4 +1073,3 @@ Before handing the system to another developer:
 | Change Graphiti HTTP contract | `services/graphiti/app.py`, `packages/infra/src/http/graphiti-http-adapter.ts` |
 | Change UI API target or port | `packages/web/vite.config.ts` |
 | Change operator UI screens | `packages/web/src` |
-

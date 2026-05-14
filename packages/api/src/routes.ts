@@ -6,13 +6,25 @@ import { loadProjectConfig, PlatformError } from "@pcp/core";
 type Services = ReturnType<typeof createAppServices>;
 
 export async function registerRoutes(app: FastifyInstance, services: Services): Promise<void> {
-  app.get("/health", async () => ({
-    status: await services.lightrag.ping() && await services.graphiti.ping() ? "ok" : "degraded",
-    adapter_mode: services.adapterMode,
-    sqlite: true,
-    lightrag: await services.lightrag.ping(),
-    graphiti: await services.graphiti.ping()
-  }));
+  app.get("/health", async () => {
+    const [lightragHealth, graphitiHealth] = await Promise.all([
+      sidecarHealth(() => services.lightrag.getHealth()),
+      sidecarHealth(() => services.graphiti.getHealth())
+    ]);
+    const lightragOk = lightragHealth.reachable && lightragHealth.status === "ok";
+    const graphitiOk = graphitiHealth.reachable && graphitiHealth.status === "ok";
+    return {
+      status: lightragOk && graphitiOk ? "ok" : "degraded",
+      adapter_mode: services.adapterMode,
+      sqlite: true,
+      lightrag: lightragOk,
+      graphiti: graphitiOk,
+      sidecars: {
+        lightrag: lightragHealth,
+        graphiti: graphitiHealth
+      }
+    };
+  });
 
   app.get("/api/projects", async () => services.workspaces.listWorkspaces());
   app.post("/api/projects", async (request) => services.workspaces.registerWorkspace(z.object({
@@ -95,4 +107,13 @@ function params(request: { params: unknown }): Record<string, string> {
 
 function query(request: { query: unknown }): Record<string, string | undefined> {
   return request.query as Record<string, string | undefined>;
+}
+
+async function sidecarHealth(load: () => Promise<Record<string, unknown>>): Promise<Record<string, unknown> & { reachable: boolean }> {
+  try {
+    const health = await load();
+    return { ...health, reachable: true };
+  } catch {
+    return { reachable: false, status: "unreachable" };
+  }
 }

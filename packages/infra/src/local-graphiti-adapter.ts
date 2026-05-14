@@ -9,6 +9,19 @@ interface MemoryFile {
 export class LocalGraphitiAdapter implements GraphitiAdapter {
   constructor(private readonly memoryPath = ".project-context/memory.json") {}
 
+  async getHealth(): Promise<Record<string, unknown>> {
+    return {
+      status: "ok",
+      engine: "graphiti",
+      backend: "local",
+      llm_configured: false,
+      embedding_configured: false,
+      storage_ready: true,
+      graph_ready: null,
+      migration_available: false
+    };
+  }
+
   async rememberDecision(project_id: string, payload: Record<string, unknown>): Promise<void> {
     this.append(project_id, "decision", payload);
   }

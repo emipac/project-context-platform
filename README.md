@@ -34,8 +34,8 @@ packages/api         Fastify REST API
 packages/mcp-server  MCP stdio server for agent tools
 packages/cli         Project registration, ingestion, validation CLI
 packages/web         React/Vite operator UI
-services/lightrag    Python HTTP sidecar for document retrieval
-services/graphiti    Python HTTP sidecar for memory/Graphiti contract
+services/lightrag    Python HTTP sidecar for document retrieval / LightRAG core
+services/graphiti    Python HTTP sidecar for memory / Graphiti core
 docs                 Handover, contracts, and documentation guidelines
 ```
 
@@ -54,7 +54,8 @@ CLI / REST API / MCP / Web UI
 - Node.js 22.5+ with npm. Node.js 24+ is recommended because the project uses
   Node's experimental `node:sqlite` API.
 - Docker and Docker Compose.
-- Optional: `OPENAI_API_KEY` for LLM-backed sidecar behavior.
+- Optional: `OPENAI_API_KEY` for LLM-backed sidecar behavior when
+  `LIGHTRAG_BACKEND=core` or `GRAPHITI_BACKEND=core` is enabled.
 
 ## Quick Start
 
@@ -65,10 +66,10 @@ npm install
 cp .env.example .env
 ```
 
-Start the sidecars:
+Start the sidecars and Neo4j:
 
 ```bash
-docker compose up -d neo4j lightrag graphiti
+docker compose up -d --build neo4j lightrag graphiti
 docker compose ps
 ```
 
@@ -95,6 +96,12 @@ Health check:
 ```bash
 curl http://127.0.0.1:4318/health
 ```
+
+The default `.env.example` starts the sidecars in `contract` mode. Contract mode
+is deterministic and cheap: LightRAG uses local JSON chunk search, and Graphiti
+uses local JSON memory events. To use real LLM-backed LightRAG and Graphiti,
+set `LIGHTRAG_BACKEND=core`, `GRAPHITI_BACKEND=core`, and `OPENAI_API_KEY`, then
+rebuild the sidecars and re-ingest projects.
 
 ## npm Package
 
@@ -285,17 +292,109 @@ Broad search tools return compact previews. Use `get_document` or
 
 Copy `.env.example` to `.env` and adjust as needed.
 
-Important defaults:
+Important platform defaults:
 
 ```env
 PCP_HOST=127.0.0.1
 PCP_PORT=4318
 PCP_PROJECT_CATALOG_PATH=project-catalog.json
 PCP_ADAPTER_MODE=http
+ALLOW_REMOTE_BIND=false
+```
+
+Sidecar connection defaults:
+
+```env
 LIGHTRAG_BASE_URL=http://127.0.0.1:9621
+LIGHTRAG_TIMEOUT_MS=60000
+LIGHTRAG_BACKEND=contract
 GRAPHITI_BASE_URL=http://127.0.0.1:8091
-GRAPHITI_ENABLE_CORE=false
+GRAPHITI_TIMEOUT_MS=60000
+GRAPHITI_BACKEND=contract
+```
+
+Core sidecar provider defaults:
+
+```env
 OPENAI_API_KEY=
+LIGHTRAG_LLM_PROVIDER=openai
+LIGHTRAG_LLM_MODEL=gpt-4o-mini
+LIGHTRAG_EMBEDDING_MODEL=text-embedding-3-small
+LIGHTRAG_EMBEDDING_DIM=1536
+LIGHTRAG_QUERY_MODE=hybrid
+LIGHTRAG_MAX_ASYNC=4
+LIGHTRAG_MAX_PARALLEL_INSERT=2
+LIGHTRAG_TOP_K=40
+LIGHTRAG_CHUNK_TOP_K=16
+LIGHTRAG_MAX_TOTAL_TOKENS=20000
+GRAPHITI_LLM_PROVIDER=openai
+GRAPHITI_LLM_MODEL=gpt-4o-mini
+GRAPHITI_SMALL_LLM_MODEL=gpt-4o-mini
+GRAPHITI_EMBEDDING_MODEL=text-embedding-3-small
+GRAPHITI_CONCURRENCY_LIMIT=2
+NEO4J_URI=bolt://127.0.0.1:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=project-context
+```
+
+`contract` mode is the default local mode. It preserves the lightweight JSON
+sidecar behavior used for smoke tests and offline development. Core mode is
+explicitly selected with `LIGHTRAG_BACKEND=core` or `GRAPHITI_BACKEND=core`;
+an OpenAI key by itself does not change runtime behavior.
+
+When changing sidecar backend mode, provider settings, or model settings, rebuild
+and restart the sidecars:
+
+```bash
+docker compose up -d --build lightrag graphiti
+```
+
+Restart the API after changing `LIGHTRAG_TIMEOUT_MS`, `GRAPHITI_TIMEOUT_MS`, or
+sidecar base URLs.
+
+LightRAG core ingest reconciliation removes stale documents inside `/v1/ingest`:
+full reindexes compare manifest paths against the scanned path list and delete
+removed sources from LightRAG before inserting replacements; changed/document jobs only reconcile paths included in the payload (matching hashes skip duplicate inserts).
+Whole-project teardown stays on `DELETE /v1/projects/{project_id}` and API deletion flows, not inside ingestion alone.
+
+Tune retrieval concurrency and query breadth using `LIGHTRAG_MAX_ASYNC`,
+`LIGHTRAG_MAX_PARALLEL_INSERT`, `LIGHTRAG_TOP_K`, `LIGHTRAG_CHUNK_TOP_K`, and
+`LIGHTRAG_MAX_TOTAL_TOKENS`. Values clamp to safe ranges and surface through the LightRAG `/health` payload (`tuning`, `query_mode`, embedding metadata) without running embedding or LLM calls during health checks.
+
+Changing embedding models or dimensions still requires rebuilding indexes (typically deleting Docker volumes or re-running confirmed ingestion).
+
+### Core Mode Smoke Test
+
+With both sidecars in core mode:
+
+```env
+LIGHTRAG_BACKEND=core
+GRAPHITI_BACKEND=core
+OPENAI_API_KEY=...
+```
+
+Re-ingest a project so LightRAG builds its real index:
+
+```bash
+npm run cli -- ingest --project-id pcp --confirmed
+```
+
+Search through the API:
+
+```bash
+curl -s http://127.0.0.1:4318/api/projects/pcp/search \
+  -H 'content-type: application/json' \
+  -d '{"query":"How does the platform isolate project memory and retrieval?", "limit":5}'
+```
+
+Write and read Graphiti memory:
+
+```bash
+curl -s http://127.0.0.1:4318/api/projects/pcp/memory/decisions \
+  -H 'content-type: application/json' \
+  -d '{"id":"DEC-PCP-001","topic":"core sidecars","fact":"LightRAG and Graphiti core modes are enabled through explicit backend flags.","source":"manual smoke test"}'
+
+curl -s 'http://127.0.0.1:4318/api/projects/pcp/memory/facts?topic=core%20sidecars'
 ```
 
 Project-level indexing is configured in:
@@ -388,9 +487,11 @@ trusted local environment.
 
 This is an early-stage MVP. The TypeScript control plane, REST API, MCP server,
 CLI, local adapters, sidecar HTTP contracts, and UI are in place. The Python
-sidecars currently provide contract-compatible local behavior and are structured
-so real LightRAG/Graphiti integrations can evolve behind stable TypeScript
-adapters.
+sidecars support both deterministic contract mode and explicit core mode.
+LightRAG core indexes project content with configured LLM/embedding providers.
+Graphiti core writes project memory as graph episodes scoped by `project_id`.
+The TypeScript platform remains vendor-neutral and talks to both sidecars only
+through the documented HTTP adapters.
 
 ## License
 

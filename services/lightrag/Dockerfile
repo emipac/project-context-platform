@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir .
-COPY app.py ./
+COPY *.py ./
 
 EXPOSE 9621
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9621"]

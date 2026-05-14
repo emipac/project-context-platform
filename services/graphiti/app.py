@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import json
-import os
-import re
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from config import load_settings
+from graphiti_engine import EngineNotReadyError, create_graphiti_engine
+
 app = FastAPI(title="Project Context Graphiti HTTP Contract", version="0.1.0")
-DATA_DIR = Path(os.environ.get("GRAPHITI_DATA_DIR", "/data"))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+SETTINGS = load_settings()
+ENGINE = create_graphiti_engine(SETTINGS)
 
 
 class MemoryPayload(BaseModel):
@@ -38,133 +36,97 @@ class HistoryRequest(BaseModel):
 
 
 @app.on_event("startup")
-async def maybe_initialize_graphiti() -> None:
-    if os.environ.get("GRAPHITI_ENABLE_CORE", "false").lower() != "true":
-        return
-    # Keep graph-database wiring inside Python. The lightweight JSON store below
-    # remains available for local smoke tests when LLM credentials are absent.
-    from graphiti_core import Graphiti
+async def startup() -> None:
+    await ENGINE.startup()
 
-    graphiti = Graphiti(
-        os.environ["NEO4J_URI"],
-        os.environ["NEO4J_USER"],
-        os.environ["NEO4J_PASSWORD"],
-    )
-    try:
-        await graphiti.build_indices_and_constraints()
-    finally:
-        await graphiti.close()
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    await ENGINE.shutdown()
 
 
 @app.get("/health")
-def health() -> dict[str, Any]:
-    return {
-        "status": "ok",
-        "engine": "graphiti",
-        "contract": "pcp-v1",
-        "core_enabled": os.environ.get("GRAPHITI_ENABLE_CORE", "false").lower() == "true",
-    }
+async def health() -> dict[str, Any]:
+    return await ENGINE.health()
 
 
 @app.post("/v1/memory/decisions")
-def remember_decision(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
-    return append_event("decision", payload, x_project_id)
+async def remember_decision(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+    assert_project_header(payload.project_id, x_project_id)
+    return await call_engine(payload.project_id, ENGINE.remember_event("decision", payload.model_dump()))
 
 
 @app.post("/v1/memory/reviews")
-def remember_review(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
-    return append_event("review_finding", payload, x_project_id)
+async def remember_review(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+    assert_project_header(payload.project_id, x_project_id)
+    return await call_engine(payload.project_id, ENGINE.remember_event("review_finding", payload.model_dump()))
 
 
 @app.post("/v1/memory/requirement-changes")
-def remember_requirement_change(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+async def remember_requirement_change(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+    assert_project_header(payload.project_id, x_project_id)
     if payload.id and not payload.id.startswith("REQCHG-"):
         raise HTTPException(status_code=400, detail={"code": "VALIDATION_ERROR", "message": "Requirement change IDs must use REQCHG-*.", "project_id": payload.project_id})
-    return append_event("requirement_change", payload, x_project_id)
+    return await call_engine(payload.project_id, ENGINE.remember_event("requirement_change", payload.model_dump()))
 
 
 @app.post("/v1/memory/implementation-summaries")
-def remember_implementation_summary(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
-    return append_event("implementation_summary", payload, x_project_id)
+async def remember_implementation_summary(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+    assert_project_header(payload.project_id, x_project_id)
+    return await call_engine(payload.project_id, ENGINE.remember_event("implementation_summary", payload.model_dump()))
 
 
 @app.post("/v1/approvals")
-def remember_approval(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
-    return append_event("approval", payload, x_project_id)
+async def remember_approval(payload: MemoryPayload, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+    assert_project_header(payload.project_id, x_project_id)
+    return await call_engine(payload.project_id, ENGINE.remember_event("approval", payload.model_dump()))
 
 
 @app.post("/v1/facts/current")
-def current_facts(request: FactsRequest, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+async def current_facts(request: FactsRequest, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
     assert_project_header(request.project_id, x_project_id)
-    facts = [
-        event for event in load_events(request.project_id)
-        if topic_matches(event, request.topic) and event.get("status") != "deprecated"
-    ]
+    facts = await call_engine(request.project_id, ENGINE.get_current_facts(request.project_id, request.topic, request.related_requirement_id))
     return {"facts": facts}
 
 
 @app.post("/v1/history")
-def history(request: HistoryRequest, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+async def history(request: HistoryRequest, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
     assert_project_header(request.project_id, x_project_id)
-    events = [
-        event for event in load_events(request.project_id)
-        if topic_matches(event, request.topic) and (request.include_deprecated or event.get("status") != "deprecated")
-    ]
+    events = await call_engine(request.project_id, ENGINE.get_history(request.project_id, request.topic, request.include_deprecated))
     return {"events": events}
 
 
 @app.delete("/v1/projects/{project_id}")
-def delete_project(project_id: str, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
+async def delete_project(project_id: str, x_project_id: str | None = Header(default=None)) -> dict[str, Any]:
     assert_project_header(project_id, x_project_id)
-    path = project_file(project_id)
-    had_file = path.exists()
-    if had_file:
-        path.unlink()
-    deleted_graph = delete_neo4j_namespace(project_id)
-    return {"ok": True, "project_id": project_id, "deleted_events": had_file, "deleted_graph": deleted_graph}
+    return await call_engine(project_id, ENGINE.delete_project(project_id))
 
 
-def delete_neo4j_namespace(project_id: str) -> bool:
-    """PCP contract: remove Neo4j nodes tagged with workspace isolation fields when Graphiti core is enabled."""
-    if os.environ.get("GRAPHITI_ENABLE_CORE", "false").lower() != "true":
-        return False
-    uri = os.environ.get("NEO4J_URI")
-    user = os.environ.get("NEO4J_USER")
-    password = os.environ.get("NEO4J_PASSWORD")
-    if not uri or user is None or password is None:
-        return False
+async def call_engine(project_id: str, operation: Any) -> Any:
     try:
-        from neo4j import GraphDatabase
-    except ImportError:
-        return False
-    driver = None
-    try:
-        driver = GraphDatabase.driver(uri, auth=(user, password))
-        with driver.session() as session:
-            session.run(
-                """
-                MATCH (n)
-                WHERE n.graphiti_namespace = $pid OR n.namespace = $pid OR n.project_id = $pid
-                DETACH DELETE n
-                """,
-                pid=project_id,
-            )
-        return True
-    except Exception:
-        return False
-    finally:
-        if driver is not None:
-            driver.close()
-
-
-def append_event(event_type: str, payload: MemoryPayload, header: str | None) -> dict[str, Any]:
-    assert_project_header(payload.project_id, header)
-    event = payload.model_dump()
-    event.update({"type": event_type, "created_at": iso_now(), "graphiti_namespace": payload.project_id})
-    events = load_events(payload.project_id)
-    events.append(event)
-    project_file(payload.project_id).write_text(json.dumps(events, indent=2))
-    return {"ok": True}
+        return await operation
+    except EngineNotReadyError as err:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "BACKEND_NOT_READY",
+                "message": str(err),
+                "details": err.details,
+                "project_id": project_id,
+                "retryable": False,
+            },
+        ) from err
+    except Exception as err:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "BACKEND_UNAVAILABLE",
+                "message": "Graphiti backend request failed.",
+                "details": {"error": safe_error(err)},
+                "project_id": project_id,
+                "retryable": True,
+            },
+        ) from err
 
 
 def assert_project_header(project_id: str, header: str | None) -> None:
@@ -172,23 +134,5 @@ def assert_project_header(project_id: str, header: str | None) -> None:
         raise HTTPException(status_code=400, detail={"code": "VALIDATION_ERROR", "message": "Project header does not match payload.", "project_id": project_id})
 
 
-def topic_matches(event: dict[str, Any], topic: str) -> bool:
-    if not topic:
-        return True
-    return topic.lower() in str(event.get("topic", "")).lower() or topic.lower() in json.dumps(event).lower()
-
-
-def project_file(project_id: str) -> Path:
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "-", project_id)
-    return DATA_DIR / f"{safe}-events.json"
-
-
-def load_events(project_id: str) -> list[dict[str, Any]]:
-    path = project_file(project_id)
-    if not path.exists():
-        return []
-    return json.loads(path.read_text())
-
-
-def iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def safe_error(err: Exception) -> str:
+    return str(err).replace("\n", " ")[:500]

@@ -63,6 +63,7 @@ test("project deletion surfaces CLI, API route, SQLite deletes, and sidecar DELE
   const catalog = readFileSync(new URL("../packages/core/src/config/project-catalog-store.ts", import.meta.url), "utf8");
   const lightrag = readFileSync(new URL("../services/lightrag/app.py", import.meta.url), "utf8");
   const graphiti = readFileSync(new URL("../services/graphiti/app.py", import.meta.url), "utf8");
+  const graphitiEngine = readFileSync(new URL("../services/graphiti/graphiti_engine.py", import.meta.url), "utf8");
   assert.match(cli, /action === "delete"/);
   assert.match(cli, /deleteProjectContextDir/);
   assert.match(routes, /app\.delete\("\/api\/projects\/:project_id"/);
@@ -71,5 +72,47 @@ test("project deletion surfaces CLI, API route, SQLite deletes, and sidecar DELE
   assert.match(catalog, /remove\(project_id/);
   assert.match(lightrag, /@app\.delete\("\/v1\/projects\/\{project_id\}"\)/);
   assert.match(graphiti, /@app\.delete\("\/v1\/projects\/\{project_id\}"\)/);
-  assert.match(graphiti, /delete_neo4j_namespace/);
+  assert.match(graphitiEngine, /_delete_graph_namespace/);
+});
+
+test("sidecar core modes are explicit and health reports capabilities", () => {
+  const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
+  const compose = readFileSync(new URL("../docker-compose.yml", import.meta.url), "utf8");
+  const contract = readFileSync(new URL("../docs/contracts/backend-http-v1.md", import.meta.url), "utf8");
+  const lightragConfig = readFileSync(new URL("../services/lightrag/config.py", import.meta.url), "utf8");
+  const graphitiConfig = readFileSync(new URL("../services/graphiti/config.py", import.meta.url), "utf8");
+  const lightrag = readFileSync(new URL("../services/lightrag/app.py", import.meta.url), "utf8");
+  const lightragEngine = readFileSync(new URL("../services/lightrag/lightrag_engine.py", import.meta.url), "utf8");
+  const graphiti = readFileSync(new URL("../services/graphiti/app.py", import.meta.url), "utf8");
+  const graphitiEngine = readFileSync(new URL("../services/graphiti/graphiti_engine.py", import.meta.url), "utf8");
+  const routes = readFileSync(new URL("../packages/api/src/routes.ts", import.meta.url), "utf8");
+
+  assert.match(env, /LIGHTRAG_BACKEND=contract/);
+  assert.match(env, /GRAPHITI_BACKEND=contract/);
+  assert.doesNotMatch(env, /GRAPHITI_ENABLE_CORE/);
+  assert.doesNotMatch(compose, /GRAPHITI_ENABLE_CORE/);
+  assert.match(lightragConfig, /LIGHTRAG_BACKEND", "contract"/);
+  assert.match(graphitiConfig, /GRAPHITI_BACKEND", "contract"/);
+  assert.doesNotMatch(graphitiConfig, /GRAPHITI_ENABLE_CORE/);
+  for (const source of [lightragEngine, graphitiEngine, contract]) {
+    assert.match(source, /backend/);
+    assert.match(source, /llm_configured/);
+    assert.match(source, /embedding_configured/);
+    assert.match(source, /storage_ready/);
+    assert.match(source, /migration_available/);
+  }
+  assert.match(routes, /sidecars/);
+  assert.match(lightrag, /create_lightrag_engine/);
+  assert.match(lightragEngine, /CoreLightRagEngine/);
+  assert.match(lightragEngine, /ContractLightRagEngine/);
+  assert.match(graphiti, /create_graphiti_engine/);
+  assert.match(graphitiEngine, /CoreGraphitiEngine/);
+  assert.match(graphitiEngine, /ContractGraphitiEngine/);
+  assert.match(graphitiEngine, /group_id/);
+});
+
+test("HTTP client accepts FastAPI detail-wrapped contract errors", () => {
+  const client = readFileSync(new URL("../packages/infra/src/http/http-client.ts", import.meta.url), "utf8");
+  assert.match(client, /raw\.detail/);
+  assert.match(client, /body\.code/);
 });

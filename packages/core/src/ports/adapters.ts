@@ -18,6 +18,7 @@ export interface DocumentSelector {
 }
 
 export interface LightRagAdapter {
+  getHealth(project_id?: string): Promise<Record<string, unknown>>;
   searchDocs(project_id: string, query: string, opts?: Record<string, unknown>): Promise<CanonicalDocumentChunk[]>;
   getSpecContext(project_id: string, spec_id: string, includeNeighbors?: boolean): Promise<CanonicalDocumentChunk[]>;
   getRelatedCode(project_id: string, featureOrReq: string, opts?: Record<string, unknown>): Promise<CanonicalDocumentChunk[]>;
@@ -29,6 +30,7 @@ export interface LightRagAdapter {
 }
 
 export interface GraphitiAdapter {
+  getHealth(project_id?: string): Promise<Record<string, unknown>>;
   rememberDecision(project_id: string, payload: Record<string, unknown>): Promise<void>;
   rememberReview(project_id: string, payload: Record<string, unknown>): Promise<void>;
   rememberRequirementChange(project_id: string, payload: Record<string, unknown>): Promise<void>;
