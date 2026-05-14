@@ -38,6 +38,11 @@ h2 {
   margin: 0;
 }
 
+h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
 nav {
   display: flex;
   flex-wrap: wrap;
@@ -75,6 +80,62 @@ nav button.active {
   color: #164fba;
 }
 
+.btn {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  border-radius: 6px;
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:focus-visible {
+  outline: 2px solid #2f6fed;
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, #4584f8 0%, #2f6fed 55%, #2a63db 100%);
+  border-color: #2463df;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(31, 56, 110, 0.14);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(180deg, #3d7aee 0%, #285fd4 100%);
+  border-color: #1f56c9;
+}
+
+.btn-primary:active {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.btn-sync-artifacts {
+  border: 1px solid #2f6fed;
+  background: #eaf1ff;
+  color: #164fba;
+  padding: 8px 14px;
+  font-weight: 600;
+}
+
+.btn-sync-artifacts:hover {
+  background: #dfe9fb;
+  border-color: #2463df;
+}
+
+.panel-title .btn-sync-artifacts {
+  align-self: flex-start;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.btn-lookup-trace {
+  min-width: 148px;
+}
+
 section {
   padding: 18px 0;
   border-top: 1px solid #d8e0e8;
@@ -91,6 +152,20 @@ section {
 .panel-title span,
 .empty {
   color: #66788a;
+}
+
+.section-help,
+.section-heading p,
+.info-card p,
+.lookup-form-grid small {
+  color: #66788a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.section-help {
+  margin: 6px 0 0;
+  max-width: 760px;
 }
 
 .banner {
@@ -116,6 +191,84 @@ section {
 
 .search input {
   flex: 1;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.info-card {
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.info-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.info-card p {
+  margin: 0;
+}
+
+.trace-section {
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+  margin: 16px 0;
+  padding: 14px;
+}
+
+.section-heading {
+  margin-bottom: 12px;
+}
+
+.section-heading p {
+  margin: 6px 0 0;
+}
+
+.lookup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lookup-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.lookup-form-grid label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lookup-form-grid input {
+  border: 1px solid #c9d3df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #243447;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.lookup-form-grid small {
+  font-weight: 400;
+}
+
+.lookup-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .summary-grid {

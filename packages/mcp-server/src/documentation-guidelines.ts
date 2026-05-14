@@ -26,6 +26,8 @@ export async function getDocumentationGuidelines(services: Services, input: Reco
     stable_id_rules: {
       required_prefixes: config.ids.required_prefixes,
       project_domain: domain,
+      lookup_tool:
+        "After reviewing prefixes with get_documentation_guidelines, call list_stable_ids to inspect occupied registry IDs before creating or renumbering stable IDs. list_stable_ids is read-only (lists existing rows only); use validate_ids when checking duplicate ID health.",
       examples: [
         `ADR-${domain}-0003`,
         "REQ-HIRING-001",
@@ -77,7 +79,8 @@ async function resolveWorkspace(services: Services, projectId: string | undefine
 function guidanceForDocType(docType: string, domain: string): string[] {
   const common = [
     "Use canonical docs for durable truth, and memory tools for temporal work history.",
-    `Use IDs like ADR-${domain}-0003 for project-level decisions and REQ-AREA-001 for durable requirements.`
+    `Use IDs like ADR-${domain}-0003 for project-level decisions and REQ-AREA-001 for durable requirements.`,
+    `Before assigning new stable IDs or renumbering IDs, call list_stable_ids to see occupied registry entries (validate_ids remains the duplicate-health check).`
   ];
   if (docType === "adr") {
     return [...common, "Prefer ADR-PROJECT-000N headings for new ADRs. Legacy ADR 000N headings are aliases only."];

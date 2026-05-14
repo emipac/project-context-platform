@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { createAppServices } from "@pcp/infra";
-import { loadProjectConfig, PlatformError } from "@pcp/core";
+import { loadProjectConfig, PlatformError, type SpddTraceFilter } from "@pcp/core";
 
 type Services = ReturnType<typeof createAppServices>;
 
@@ -99,6 +99,70 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
   app.post("/api/projects/:project_id/approvals", async (request) => services.memory.rememberApproval(params(request).project_id, z.record(z.unknown()).parse(request.body)));
   app.post("/api/projects/:project_id/memory/review-preview", async (request) => services.memory.previewMemoryWrite(params(request).project_id, z.record(z.unknown()).parse(request.body)));
   app.get("/api/projects/:project_id/tool-call-logs", async (request) => services.toolCalls.list(params(request).project_id));
+
+  app.post("/api/projects/:project_id/spdd-trace/artifacts/sync", async (request) =>
+    services.spddTrace.syncArtifacts(params(request).project_id));
+
+  app.get("/api/projects/:project_id/spdd-trace/artifacts", async (request) => {
+    const trace = await services.spddTrace.listTrace(params(request).project_id, spddTraceFilterFromQuery(query(request)));
+    return { artifacts: trace.artifacts, warnings: trace.warnings };
+  });
+
+  app.post("/api/projects/:project_id/spdd-trace/runs", async (request) =>
+    services.spddTrace.recordRun(params(request).project_id, recordSpddRunBody.parse(request.body ?? {})));
+
+  app.get("/api/projects/:project_id/spdd-trace/runs", async (request) =>
+    services.spddTrace.listTrace(params(request).project_id, spddTraceFilterFromQuery(query(request))));
+
+  app.get("/api/projects/:project_id/spdd-trace/lookup", async (request) =>
+    services.spddTrace.lookupByTarget(params(request).project_id, spddTraceFilterFromQuery(query(request))));
+}
+
+const spddArtifactTypeSchema = z.enum(["prompt", "analysis", "plan", "review", "unknown"]);
+const spddTargetTypeSchema = z.enum(["stable_id", "source_path", "chunk", "feature", "tool_call", "memory_event"]);
+
+const recordSpddRunBody = z.object({
+  artifact_id: z.string().optional(),
+  artifact_path: z.string().optional(),
+  title: z.string().optional(),
+  summary: z.string(),
+  status: z.enum(["planned", "in_progress", "completed", "reverted", "superseded"]).optional(),
+  actor: z.string().optional(),
+  channel: z.string().optional(),
+  stable_ids: z.array(z.string()).optional(),
+  source_paths: z.array(z.string()).optional(),
+  chunk_ids: z.array(z.string()).optional(),
+  feature_refs: z.array(z.string()).optional(),
+  tool_call_ids: z.array(z.string()).optional(),
+  memory_event_ids: z.array(z.string()).optional(),
+  relation: z.enum(["retrieved", "referenced", "implemented", "changed", "reviewed", "validated", "summarized"]).optional(),
+  mirror_to_memory: z.boolean().optional()
+});
+
+function parseSpddLimit(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(200, Math.max(1, n));
+}
+
+function spddTraceFilterFromQuery(q: Record<string, string | undefined>): SpddTraceFilter {
+  const artifact_type = q.artifact_type ? spddArtifactTypeSchema.parse(q.artifact_type) : undefined;
+  const target_type = q.target_type ? spddTargetTypeSchema.parse(q.target_type) : undefined;
+  return {
+    run_id: q.run_id,
+    artifact_id: q.artifact_id,
+    artifact_path: q.artifact_path,
+    stable_id: q.stable_id,
+    source_path: q.source_path,
+    chunk_id: q.chunk_id,
+    feature_ref: q.feature_ref,
+    artifact_type,
+    target_type,
+    target_id: q.target_id,
+    include_stale: q.include_stale === "true",
+    limit: parseSpddLimit(q.limit)
+  };
 }
 
 function params(request: { params: unknown }): Record<string, string> {

@@ -13,3 +13,4 @@ export * from "./services/temporal-memory-service.js";
 export * from "./services/context-composer-service.js";
 export * from "./services/validation-service.js";
 export * from "./services/observability-service.js";
+export * from "./services/spdd-trace-service.js";

@@ -10,6 +10,8 @@ that context through a REST API, MCP server, CLI, and small web UI.
 It is designed for teams that want coding agents to work from canonical project
 context instead of guessing from whatever files happen to be open.
 
+Use AGENTS.md content in other projects to have a proper agentic workflow.
+
 ## What It Does
 
 - Registers one or more local projects.
@@ -23,7 +25,11 @@ context instead of guessing from whatever files happen to be open.
 - Records memory events for decisions, requirement changes, implementation
   summaries, reviews, and approvals.
 - Provides a web UI for browsing projects, ingestion jobs, indexed documents,
-  ID registry entries, memory, approvals, settings, and tool-call logs.
+  ID registry entries, memory, approvals, settings, tool-call logs, and the SPDD trace registry tab.
+- Catalogs SPDD artifacts under `spdd/prompt`, `spdd/analysis`, `spdd/plan`, and `spdd/review`
+  into **project SQLite metadata** independently of LightRAG indexing: paths such as `spdd/prompt/**`
+  may remain listed under `indexing.ignore` for retrieval while still being scanned for trace metadata,
+  stable-ID headings, and content hashes (full bodies stay out of trace APIs).
 
 ## Architecture
 
@@ -165,6 +171,19 @@ Validate stable IDs:
 npm run cli -- validate-ids --project-id pcp
 ```
 
+Refresh the **SPDD trace** artifact catalog (metadata SQLite scan under `spdd/**`; independent of LightRAG ingest):
+
+```bash
+npm run cli -- spdd-trace sync --project-id pcp
+```
+
+List recorded trace rows or capture a run (examples):
+
+```bash
+npm run cli -- spdd-trace list --project-id pcp --limit 50
+npm run cli -- spdd-trace record --project-id pcp --artifact-path spdd/prompt/example.md --summary "Implemented trace hooks"
+```
+
 List projects:
 
 ```bash
@@ -284,6 +303,13 @@ Useful MCP tools include:
 - `remember_review`
 - `ingest_changed_files`
 - `validate_ids`
+
+SPDD trace registry (metadata-backed catalog under `spdd/**`; not LightRAG indexing):
+
+- `sync_spdd_artifacts`
+- `record_spdd_run`
+- `list_spdd_trace`
+- `lookup_spdd_trace`
 
 Broad search tools return compact previews. Use `get_document` or
 `get_spec_context` when an agent needs full content.

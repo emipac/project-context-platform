@@ -21,6 +21,10 @@ Do not rely on only `ADR 0003`, `Q1`, `P1`, or `IQ-6`. These may be aliases,
 but every durable requirement, decision, task, or acceptance criterion should
 have a canonical stable ID.
 
+When authoring new IDs via MCP, use `list_stable_ids` after
+`get_documentation_guidelines` to inspect IDs already registered for the project;
+use `validate_ids` when checking duplicate-ID health.
+
 Legacy ADR headings and filenames are supported for visibility. For example,
 `# ADR 0003: Hybrid Search Architecture` and `docs/adr/0003-hybrid-search-architecture.md`
 can be indexed as `ADR-PROF-0003` when `ids.project_domain: PROF`.

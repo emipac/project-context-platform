@@ -296,6 +296,9 @@ From the platform repository root:
 npm run cli -- projects add --root "$PWD" --project-id pcp
 npm run cli -- ingest --project-id pcp --confirmed
 npm run cli -- validate-ids --project-id pcp
+# Optional: SPDD trace catalog (separate from LightRAG ingest; scans spdd/** into metadata.sqlite)
+npm run cli -- spdd-trace sync --project-id pcp
+npm run cli -- spdd-trace list --project-id pcp --limit 50
 ```
 
 This creates:
@@ -589,6 +592,42 @@ Code:
 
 - `packages/core/src/services/ingestion-service.ts`
 
+### SPDD trace registry
+
+LightRAG indexing uses `indexing.include` / `indexing.ignore` from
+`<project>/.project-context/config.yml`. SPDD artifact discovery is a separate,
+metadata-backed pass controlled by `SpddTraceService`: it scans Markdown-like files under
+`spdd/prompt`, `spdd/analysis`, `spdd/plan`, and `spdd/review`, derives headings and stable IDs,
+stores content hashes (never full prompt bodies over REST/tool APIs), and records explicit runs plus links.
+
+Important distinctions:
+
+- `spdd/prompt/**` (and sibling folders) may stay ignored by LightRAG for retrieval while still being cataloged for SPDD trace.
+- SQLite rows under `spdd_artifacts`, `spdd_work_runs`, and `spdd_trace_links` are authoritative local trace facts.
+- Optional Graphiti `rememberImplementationSummary` mirroring is best-effort narrative recall only (mirroring adds warnings when failing).
+
+Anchoring priorities:
+
+- Stable IDs and workspace-relative source paths are durable anchors for lookups.
+- Chunk IDs help when present but can drift after reindexing.
+
+Artifact statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `current` | The artifact exists on disk during the latest SPDD sync and its metadata row reflects that scan. |
+| `missing` | The artifact was cataloged before, but the latest sync no longer found that path. The row remains for historical traceability. |
+| `stale` | Reserved for artifacts known to be outdated or superseded. The current sync path mainly emits `current` and `missing`. |
+
+Reverse lookups (`GET .../spdd-trace/lookup`) traverse recorded links into runs and artifact rows.
+
+Backfills (`POST .../spdd-trace/artifacts/sync`) can enumerate historic prompts but cannot reconstruct absent workspace telemetry unless operators captured earlier trace rows manually.
+
+Code:
+
+- `packages/core/src/services/spdd-trace-service.ts`
+- `packages/infra/src/sqlite-metadata-repository.ts`
+
 ## 10. Stable IDs and Aliases
 
 Canonical stable IDs use this shape:
@@ -698,6 +737,16 @@ Core routes:
 | `GET /api/projects/:project_id/ids/:stable_id` | Get registry entry by ID or alias |
 | `GET /api/projects/:project_id/tool-call-logs` | Read tool call logs |
 
+SPDD trace registry routes:
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/projects/:project_id/spdd-trace/artifacts/sync` | Scan `spdd/**` trees and upsert artifact rows in project SQLite |
+| `GET /api/projects/:project_id/spdd-trace/artifacts` | List artifact rows (returns `{ artifacts, warnings }`) |
+| `POST /api/projects/:project_id/spdd-trace/runs` | Record a work run with trace links |
+| `GET /api/projects/:project_id/spdd-trace/runs` | List artifacts, runs, and links with filters |
+| `GET /api/projects/:project_id/spdd-trace/lookup` | Reverse lookup by stable ID, path, chunk ID, or feature ref |
+
 Memory and context routes:
 
 | Route | Purpose |
@@ -757,6 +806,15 @@ Workflow:
 | `ingest_document` | Index one document |
 | `get_ingestion_status` | Read ingestion jobs |
 | `validate_ids` | Find duplicate IDs |
+
+SPDD trace registry:
+
+| Tool | Purpose |
+| --- | --- |
+| `sync_spdd_artifacts` | Refresh artifact catalog from `spdd/prompt`, `analysis`, `plan`, `review` |
+| `record_spdd_run` | Record a run plus optional links to stable IDs, paths, chunks, feature refs |
+| `list_spdd_trace` | List artifacts, runs, and links with optional filters |
+| `lookup_spdd_trace` | Reverse lookup trace targets into linked runs and artifacts |
 
 Broad search tools intentionally return compact previews:
 

@@ -181,6 +181,25 @@ export interface ValidationReport {
   warnings: string[];
 }
 
+/** Filters for read-only stable ID registry lookup (MCP list_stable_ids). */
+export interface StableIdLookupFilter {
+  category?: IdCategory;
+  domain?: string;
+  source_path?: string;
+  status?: RegistryEntryStatus;
+  include_stale?: boolean;
+  include_aliases?: boolean;
+  limit?: number;
+}
+
+export interface StableIdLookupResponse {
+  project_id: string;
+  filters: StableIdLookupFilter;
+  total: number;
+  entries: IdRegistryEntry[];
+  warnings: string[];
+}
+
 export interface DeleteProjectResultDTO {
   project_id: string;
   removedFromCatalog: boolean;
@@ -189,5 +208,93 @@ export interface DeleteProjectResultDTO {
   lightragDeleted: boolean;
   graphitiDeleted: boolean;
   projectContextDeleted: boolean;
+  warnings: string[];
+}
+
+export type SpddArtifactType = "prompt" | "analysis" | "plan" | "review" | "unknown";
+export type SpddArtifactStatus = "current" | "stale" | "missing";
+export type SpddWorkRunStatus = "planned" | "in_progress" | "completed" | "reverted" | "superseded";
+export type SpddTraceTargetType = "stable_id" | "source_path" | "chunk" | "feature" | "tool_call" | "memory_event";
+export type SpddTraceRelation = "retrieved" | "referenced" | "implemented" | "changed" | "reviewed" | "validated" | "summarized";
+
+export interface SpddArtifact {
+  project_id: string;
+  artifact_id: string;
+  artifact_type: SpddArtifactType;
+  source_path: string;
+  title?: string;
+  stable_ids: string[];
+  content_hash: string;
+  status: SpddArtifactStatus;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface SpddWorkRun {
+  project_id: string;
+  run_id: string;
+  artifact_id?: string;
+  artifact_path?: string;
+  title: string;
+  summary: string;
+  status: SpddWorkRunStatus;
+  actor?: string;
+  channel?: string;
+  started_at?: string;
+  completed_at: string;
+  memory_event_id?: string;
+}
+
+export interface SpddTraceLink {
+  project_id: string;
+  link_id: string;
+  run_id: string;
+  target_type: SpddTraceTargetType;
+  target_id: string;
+  relation: SpddTraceRelation;
+  source_path?: string;
+  chunk_id?: string;
+  stable_id?: string;
+  status: "current" | "stale" | "unresolved";
+  created_at: string;
+}
+
+export interface RecordSpddRunDTO {
+  artifact_id?: string;
+  artifact_path?: string;
+  title?: string;
+  summary: string;
+  status?: SpddWorkRunStatus;
+  actor?: string;
+  channel?: string;
+  stable_ids?: string[];
+  source_paths?: string[];
+  chunk_ids?: string[];
+  feature_refs?: string[];
+  tool_call_ids?: string[];
+  memory_event_ids?: string[];
+  relation?: SpddTraceRelation;
+  mirror_to_memory?: boolean;
+}
+
+export interface SpddTraceFilter {
+  run_id?: string;
+  artifact_id?: string;
+  artifact_path?: string;
+  stable_id?: string;
+  source_path?: string;
+  chunk_id?: string;
+  feature_ref?: string;
+  artifact_type?: SpddArtifactType;
+  target_type?: SpddTraceTargetType;
+  target_id?: string;
+  include_stale?: boolean;
+  limit?: number;
+}
+
+export interface SpddTraceResponse {
+  artifacts: SpddArtifact[];
+  runs: SpddWorkRun[];
+  links: SpddTraceLink[];
   warnings: string[];
 }

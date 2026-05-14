@@ -2,6 +2,10 @@ import type {
   CanonicalDocumentChunk,
   IdRegistryEntry,
   IngestionMode,
+  SpddArtifact,
+  SpddTraceFilter,
+  SpddTraceLink,
+  SpddWorkRun,
   ToolCallLogEntry
 } from "../domain/types.js";
 
@@ -57,5 +61,11 @@ export interface MetadataRepository {
   markStaleRegistryEntriesExceptPaths?(project_id: string, activePaths: string[], reason?: string): Promise<void>;
   saveRegistryEntries(project_id: string, entries: IdRegistryEntry[]): Promise<void>;
   listRegistryEntries(project_id: string): Promise<IdRegistryEntry[]>;
+  saveSpddArtifacts(project_id: string, artifacts: SpddArtifact[]): Promise<void>;
+  listSpddArtifacts(project_id: string, filter?: SpddTraceFilter): Promise<SpddArtifact[]>;
+  saveSpddWorkRun(run: SpddWorkRun): Promise<void>;
+  listSpddWorkRuns(project_id: string, filter?: SpddTraceFilter): Promise<SpddWorkRun[]>;
+  saveSpddTraceLinks(project_id: string, links: SpddTraceLink[]): Promise<void>;
+  listSpddTraceLinks(project_id: string, filter?: SpddTraceFilter): Promise<SpddTraceLink[]>;
   deleteProject(project_id: string): Promise<void>;
 }

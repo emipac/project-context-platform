@@ -158,6 +158,72 @@ registerTool("validate_ids", "Validate stable IDs and return duplicate or missin
   project_id: z.string().optional()
 });
 
+registerTool(
+  "list_stable_ids",
+  "List occupied stable IDs from the project ID Registry with optional filters. Read-only: reports existing registry rows only and does not reserve or allocate IDs.",
+  {
+    project_id: z.string().optional(),
+    category: z.enum(["REQ", "TASK", "ADR", "DEC", "REQCHG", "REV", "IMPL", "AC", "NFR", "DP"]).optional(),
+    domain: z.string().optional(),
+    source_path: z.string().optional(),
+    status: z.enum(["current", "stale", "duplicate"]).optional(),
+    include_stale: z.boolean().optional(),
+    include_aliases: z.boolean().optional(),
+    limit: z.number().optional()
+  }
+);
+
+registerTool("sync_spdd_artifacts", "Scan spdd/prompt, analysis, plan, and review trees and sync metadata-backed artifact catalog rows.", {
+  project_id: z.string().optional()
+});
+
+registerTool("record_spdd_run", "Record an SPDD work run with explicit trace links to stable IDs, paths, chunks, and labels.", {
+  project_id: z.string().optional(),
+  artifact_id: z.string().optional(),
+  artifact_path: z.string().optional(),
+  title: z.string().optional(),
+  summary: z.string(),
+  status: z.enum(["planned", "in_progress", "completed", "reverted", "superseded"]).optional(),
+  actor: z.string().optional(),
+  channel: z.string().optional(),
+  stable_ids: z.array(z.string()).optional(),
+  source_paths: z.array(z.string()).optional(),
+  chunk_ids: z.array(z.string()).optional(),
+  feature_refs: z.array(z.string()).optional(),
+  tool_call_ids: z.array(z.string()).optional(),
+  memory_event_ids: z.array(z.string()).optional(),
+  relation: z.enum(["retrieved", "referenced", "implemented", "changed", "reviewed", "validated", "summarized"]).optional(),
+  mirror_to_memory: z.boolean().optional()
+});
+
+registerTool("list_spdd_trace", "Return artifacts, runs, and trace links with optional filters (limit clamped server-side).", {
+  project_id: z.string().optional(),
+  run_id: z.string().optional(),
+  artifact_id: z.string().optional(),
+  artifact_path: z.string().optional(),
+  stable_id: z.string().optional(),
+  source_path: z.string().optional(),
+  chunk_id: z.string().optional(),
+  feature_ref: z.string().optional(),
+  artifact_type: z.enum(["prompt", "analysis", "plan", "review", "unknown"]).optional(),
+  target_type: z.enum(["stable_id", "source_path", "chunk", "feature", "tool_call", "memory_event"]).optional(),
+  target_id: z.string().optional(),
+  include_stale: z.boolean().optional(),
+  limit: z.number().optional()
+});
+
+registerTool("lookup_spdd_trace", "Reverse lookup SPDD trace rows using stable IDs, paths, chunk IDs, feature refs, or typed targets.", {
+  project_id: z.string().optional(),
+  stable_id: z.string().optional(),
+  source_path: z.string().optional(),
+  chunk_id: z.string().optional(),
+  feature_ref: z.string().optional(),
+  target_type: z.enum(["stable_id", "source_path", "chunk", "feature", "tool_call", "memory_event"]).optional(),
+  target_id: z.string().optional(),
+  include_stale: z.boolean().optional(),
+  limit: z.number().optional()
+});
+
 function registerTool(name: string, description: string, inputSchema: Record<string, z.ZodType>) {
   server.registerTool(name, { description, inputSchema }, async (input) => {
     const handler = handlers[name];

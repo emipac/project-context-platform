@@ -1,4 +1,17 @@
-import type { ExtractedId, IdRegistryEntry, MergeResult, MetadataRepository, ProjectConfig, ValidationReport } from "../index.js";
+import type {
+  ExtractedId,
+  IdRegistryEntry,
+  MergeResult,
+  ProjectConfig,
+  StableIdLookupFilter,
+  StableIdLookupResponse,
+  ValidationReport
+} from "../domain/types.js";
+import type { MetadataRepository } from "../ports/adapters.js";
+import { PlatformError } from "../errors/platform-error.js";
+
+const STABLE_ID_LOOKUP_DEFAULT_LIMIT = 200;
+const STABLE_ID_LOOKUP_MAX_LIMIT = 200;
 
 const ID_PATTERN = /\b(REQ|TASK|ADR|DEC|REQCHG|REV|IMPL|AC|NFR|DP)-([A-Z0-9]+)-([0-9A-Z]+)\b/g;
 const LEGACY_ADR_HEADING_PATTERN = /^#{1,6}\s+ADR\s+0*([0-9]+)\b[:\s—-]*(.*)$/i;
@@ -80,6 +93,71 @@ export class IdRegistryService {
       valid: duplicates.length === 0,
       duplicates,
       warnings: duplicates.map((item) => `Duplicate stable ID detected: ${item.stable_id}`)
+    };
+  }
+
+  async listStableIds(project_id: string, filters: StableIdLookupFilter = {}): Promise<StableIdLookupResponse> {
+    const pid = project_id.trim();
+    if (!pid) {
+      throw new PlatformError("VALIDATION_ERROR", "project_id is required.", { project_id: null });
+    }
+
+    const normalizedDomain = normalizeOptionalFilterString(filters.domain);
+    const normalizedSourcePath = normalizeOptionalFilterString(filters.source_path);
+    const effectiveLimit = clampStableIdLookupLimit(filters.limit);
+
+    const effectiveFilters: StableIdLookupFilter = {
+      category: filters.category,
+      domain: normalizedDomain,
+      source_path: normalizedSourcePath,
+      status: filters.status,
+      include_stale: filters.include_stale === true,
+      include_aliases: filters.include_aliases === true,
+      limit: effectiveLimit
+    };
+
+    const rows = await this.repository.listRegistryEntries(pid);
+
+    let filtered = rows.filter((entry) => {
+      if (effectiveFilters.status !== undefined) {
+        return entry.status === effectiveFilters.status;
+      }
+      if (!effectiveFilters.include_stale && entry.status === "stale") {
+        return false;
+      }
+      return true;
+    });
+
+    if (effectiveFilters.category !== undefined) {
+      filtered = filtered.filter((entry) => entry.category === effectiveFilters.category);
+    }
+    if (normalizedDomain !== undefined) {
+      filtered = filtered.filter((entry) => entry.domain === normalizedDomain);
+    }
+    if (normalizedSourcePath !== undefined) {
+      filtered = filtered.filter((entry) => entry.source_path === normalizedSourcePath);
+    }
+
+    filtered.sort(compareRegistryEntriesForLookup);
+
+    const warnings = duplicateStableIdWarnings(filtered);
+    const limited = filtered.slice(0, effectiveLimit);
+
+    const entries = limited.map((entry) => {
+      if (effectiveFilters.include_aliases) {
+        return entry;
+      }
+      const copy = { ...entry };
+      delete copy.aliases;
+      return copy;
+    });
+
+    return {
+      project_id: pid,
+      filters: effectiveFilters,
+      total: entries.length,
+      entries,
+      warnings
     };
   }
 }
@@ -164,6 +242,36 @@ function nearestHeading(lines: string[], index: number): string | undefined {
     if (match) return match[2];
   }
   return undefined;
+}
+
+function clampStableIdLookupLimit(raw: number | undefined): number {
+  if (raw === undefined || !Number.isFinite(raw)) {
+    return STABLE_ID_LOOKUP_DEFAULT_LIMIT;
+  }
+  return Math.min(STABLE_ID_LOOKUP_MAX_LIMIT, Math.max(1, Math.floor(raw)));
+}
+
+function normalizeOptionalFilterString(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const t = value.trim();
+  return t === "" ? undefined : t;
+}
+
+function compareRegistryEntriesForLookup(a: IdRegistryEntry, b: IdRegistryEntry): number {
+  const c = a.category.localeCompare(b.category);
+  if (c !== 0) return c;
+  const d = a.domain.localeCompare(b.domain);
+  if (d !== 0) return d;
+  const s = a.stable_id.localeCompare(b.stable_id);
+  if (s !== 0) return s;
+  const p = a.source_path.localeCompare(b.source_path);
+  if (p !== 0) return p;
+  return (a.line_start ?? 0) - (b.line_start ?? 0);
+}
+
+function duplicateStableIdWarnings(entries: IdRegistryEntry[]): string[] {
+  const duplicates = findDuplicates(entries);
+  return duplicates.map((item) => `Duplicate stable ID detected: ${item.stable_id}`);
 }
 
 function findDuplicates(entries: IdRegistryEntry[]): IdRegistryEntry[] {

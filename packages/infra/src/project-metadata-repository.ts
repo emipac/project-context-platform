@@ -1,4 +1,14 @@
-import type { CanonicalDocumentChunk, IdRegistryEntry, IngestionJob, MetadataRepository, ProjectWorkspaceService } from "@pcp/core";
+import type {
+  CanonicalDocumentChunk,
+  IdRegistryEntry,
+  IngestionJob,
+  MetadataRepository,
+  ProjectWorkspaceService,
+  SpddArtifact,
+  SpddTraceFilter,
+  SpddTraceLink,
+  SpddWorkRun
+} from "@pcp/core";
 import { SqliteMetadataRepository } from "./sqlite-metadata-repository.js";
 
 export class ProjectMetadataRepository implements MetadataRepository {
@@ -40,6 +50,30 @@ export class ProjectMetadataRepository implements MetadataRepository {
 
   async listRegistryEntries(project_id: string): Promise<IdRegistryEntry[]> {
     return (await this.forProject(project_id)).listRegistryEntries(project_id);
+  }
+
+  async saveSpddArtifacts(project_id: string, artifacts: SpddArtifact[]): Promise<void> {
+    await (await this.forProject(project_id)).saveSpddArtifacts(project_id, artifacts);
+  }
+
+  async listSpddArtifacts(project_id: string, filter?: SpddTraceFilter): Promise<SpddArtifact[]> {
+    return (await this.forProject(project_id)).listSpddArtifacts(project_id, filter);
+  }
+
+  async saveSpddWorkRun(run: SpddWorkRun): Promise<void> {
+    await (await this.forProject(run.project_id)).saveSpddWorkRun(run);
+  }
+
+  async listSpddWorkRuns(project_id: string, filter?: SpddTraceFilter): Promise<SpddWorkRun[]> {
+    return (await this.forProject(project_id)).listSpddWorkRuns(project_id, filter);
+  }
+
+  async saveSpddTraceLinks(project_id: string, links: SpddTraceLink[]): Promise<void> {
+    await (await this.forProject(project_id)).saveSpddTraceLinks(project_id, links);
+  }
+
+  async listSpddTraceLinks(project_id: string, filter?: SpddTraceFilter): Promise<SpddTraceLink[]> {
+    return (await this.forProject(project_id)).listSpddTraceLinks(project_id, filter);
   }
 
   async deleteProject(project_id: string): Promise<void> {

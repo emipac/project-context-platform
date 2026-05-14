@@ -7,6 +7,7 @@ import {
   ProjectDeletionService,
   ProjectWorkspaceService,
   RetrievalService,
+  SpddTraceService,
   TemporalMemoryService,
   ValidationService
 } from "@pcp/core";
@@ -41,6 +42,7 @@ export function createAppServices() {
     memory: new TemporalMemoryService(workspaces, graphiti),
     composer: new ContextComposerService(workspaces, lightrag, graphiti),
     validation: new ValidationService(workspaces),
-    observability: new ObservabilityService(toolCalls)
+    observability: new ObservabilityService(toolCalls),
+    spddTrace: new SpddTraceService(workspaces, repository, graphiti, toolCalls)
   };
 }
