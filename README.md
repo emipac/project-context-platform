@@ -303,6 +303,7 @@ Useful MCP tools include:
 - `remember_review`
 - `ingest_changed_files`
 - `validate_ids`
+- `list_stable_ids`
 
 SPDD trace registry (metadata-backed catalog under `spdd/**`; not LightRAG indexing):
 
@@ -360,7 +361,7 @@ GRAPHITI_EMBEDDING_MODEL=text-embedding-3-small
 GRAPHITI_CONCURRENCY_LIMIT=2
 NEO4J_URI=bolt://127.0.0.1:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=project-context
+NEO4J_PASSWORD=
 ```
 
 `contract` mode is the default local mode. It preserves the lightweight JSON
