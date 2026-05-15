@@ -68,7 +68,7 @@ export function Table({ rows }: { rows: unknown[] }) {
             <tbody>
               {pageRows.map((row, index) => (
                 <tr key={`${currentPage}-${index}`}>
-                  {keys.map((key) => <td className={isLongCell(key, row[key]) ? "long-cell" : ""} key={key}>{renderCell(row[key])}</td>)}
+                  {keys.map((key) => <td className={isLongCell(key, row[key]) ? "long-cell" : ""} key={key}>{renderCell(key, row[key])}</td>)}
                 </tr>
               ))}
             </tbody>

@@ -43,7 +43,15 @@ export class IngestionService {
     if (!resolved.startsWith(workspace.rootPath)) {
       throw new PlatformError("VALIDATION_ERROR", "Path must belong to the workspace root.", { project_id, details: { path } });
     }
-    return this.ingestPaths(project_id, [relative(workspace.rootPath, resolved)], "document", "agent", false);
+    const config = loadProjectConfig(workspace.rootPath);
+    const relativePath = normalizePath(relative(workspace.rootPath, resolved));
+    if (!isIndexablePath(relativePath, config)) {
+      throw new PlatformError("VALIDATION_ERROR", "Path is not indexable by project configuration.", {
+        project_id,
+        details: { path: relativePath }
+      });
+    }
+    return this.ingestPaths(project_id, [relativePath], "document", "agent", false);
   }
 
   async getIngestionStatus(project_id: string, job_id?: string): Promise<IngestionJob | IngestionJob[]> {

@@ -142,3 +142,36 @@ TypeScript local adapters:
 
 This mode is for development and tests only. It does not provide real LightRAG or
 Graphiti semantics.
+
+## Platform REST — Context Observability
+
+The Fastify API serves derived observability endpoints backed only by project SQLite
+metadata and MCP tool-call logs (no additional graph database):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/projects/:project_id/context/freshness` | Freshness report (`changed_file_detection`, `include_stale`) |
+| `GET` | `/api/projects/:project_id/context/quality` | Quality metrics |
+| `GET` | `/api/projects/:project_id/context/graph` | Derived graph snapshot or anchored neighborhood |
+
+### Context graph (`GET .../context/graph`)
+
+Query parameters:
+
+| Parameter | Meaning |
+| --- | --- |
+| `include_stale` | When `true`, include stale chunks and stale trace rows in the snapshot inputs. |
+| `limit` | Hard cap on returned edges after ordering (clamped server-side). |
+| `types` | Comma-separated node `type` filter; `project` always included. Anchored roots stay visible even if their type is omitted. Aliases: `run`→`spdd_run`, `artifact`→`spdd_artifact`, `feature`→`feature_ref`. |
+| `mode` | `snapshot` (ignore anchors) or `anchored` (require `root_type`/`root_id` or one shortcut). Omitted: `anchored` if any anchor field is present, else snapshot. |
+| `root_type` / `root_id` | Public root kind (`run`, `artifact`, `source_path`, `stable_id`, `feature`) plus identifier (run id, artifact id or path, workspace-relative path, stable id, feature label). |
+| `depth` | Edge hops from resolved roots (`0`–`4`, default `2`) when anchored. |
+| `edge_types` | Comma-separated allow-list (`project_path`, `path_chunk`, `chunk_stable`, `path_registry`, `path_spdd_artifact`, `artifact_run`, `path_run`, `project_run`, `run_trace`). |
+| `status` | Comma-separated trace link statuses; applies to `run_trace` edges. Must not include `stale` unless `include_stale=true`. |
+| `relation` | Comma-separated trace relations; applies only to `run_trace` edges. |
+| `ordering` | `default`, `newest_runs_first`, `unresolved_first`, `stable_id_anchored_first` (ordering runs before `limit`). |
+| `run_id`, `artifact_path`, `source_path`, `stable_id`, `feature_ref` | Shortcut anchors (at most one unless paired with matching `root_type`/`root_id`). |
+
+Warnings may include machine-oriented codes such as `GRAPH_ROOT_NOT_FOUND`, `GRAPH_TRUNCATED_BY_LIMIT`, `GRAPH_AMBIGUOUS_STABLE_ID`.
+
+These augment existing compose endpoints (`POST .../context/feature`, `POST .../context/review`) and do not replace LightRAG or Graphiti HTTP contracts above.

@@ -14,6 +14,7 @@ export type TabId =
   | "memory"
   | "approvals"
   | "logs"
+  | "contextHealth"
   | "spddTrace"
   | "settings";
 

@@ -15,7 +15,7 @@ import type {
   SpddWorkRunStatus
 } from "../domain/types.js";
 import { PlatformError } from "../errors/platform-error.js";
-import type { GraphitiAdapter, MetadataRepository, ToolCallLogger } from "../ports/adapters.js";
+import type { GraphitiAdapter, LightRagAdapter, MetadataRepository, ToolCallLogger } from "../ports/adapters.js";
 import { IdExtractor } from "./id-registry-service.js";
 import { ProjectWorkspaceService } from "./project-workspace-service.js";
 
@@ -28,7 +28,8 @@ export class SpddTraceService {
     private readonly workspaces: ProjectWorkspaceService,
     private readonly repository: MetadataRepository,
     private readonly graphiti: GraphitiAdapter,
-    private readonly toolCalls?: ToolCallLogger
+    private readonly toolCalls?: ToolCallLogger,
+    private readonly lightrag?: LightRagAdapter
   ) {}
 
   async syncArtifacts(project_id?: string): Promise<SpddTraceResponse> {
@@ -202,6 +203,9 @@ export class SpddTraceService {
       if (!chunk && regHits.length === 0) linkStatus = "unresolved";
       else if (chunk?.status === "stale" || regHits.some((entry) => entry.status === "stale")) linkStatus = "stale";
       else linkStatus = "current";
+      if (linkStatus === "unresolved") {
+        linkStatus = await this.resolveSourcePathViaLightRag(pid, relPath, warnings);
+      }
       pushLink("source_path", relPath, { source_path: relPath }, linkStatus);
     }
 
@@ -332,6 +336,25 @@ export class SpddTraceService {
       links: links.slice(0, lim),
       warnings: []
     };
+  }
+
+  private async resolveSourcePathViaLightRag(
+    project_id: string,
+    source_path: string,
+    warnings: string[]
+  ): Promise<SpddTraceLink["status"]> {
+    if (!this.lightrag) return "unresolved";
+    try {
+      const chunks = await this.lightrag.getDocument(project_id, { source_path });
+      const current = chunks.filter((chunk) => chunk.status === "current");
+      if (!current.length) return "unresolved";
+      // Sidecar-only evidence resolves source-path links only when the path
+      // carries a stable ID anchor. Plain files can remain weakly unresolved.
+      return current.some((chunk) => (chunk.stable_ids ?? []).length > 0) ? "current" : "unresolved";
+    } catch (err) {
+      warnings.push(`LightRAG source-path lookup failed for ${source_path}: ${err instanceof Error ? err.message : String(err)}`);
+      return "unresolved";
+    }
   }
 
   private async ensureArtifactRow(

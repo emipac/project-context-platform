@@ -45,6 +45,16 @@ test("ingestion indexes aliases alongside canonical stable IDs", () => {
   assert.match(source, /entry\.stable_id, \.\.\.\(entry\.aliases \?\? \[\]\)/);
 });
 
+test("single document ingestion respects project index include and ignore rules", () => {
+  const source = readFileSync(new URL("../packages/core/src/services/ingestion-service.ts", import.meta.url), "utf8");
+  assert.match(source, /async ingestDocument/);
+  assert.match(source, /const config = loadProjectConfig\(workspace\.rootPath\)/);
+  assert.match(source, /const relativePath = normalizePath\(relative\(workspace\.rootPath, resolved\)\)/);
+  assert.match(source, /if \(!isIndexablePath\(relativePath, config\)\)/);
+  assert.match(source, /Path is not indexable by project configuration\./);
+  assert.match(source, /return this\.ingestPaths\(project_id, \[relativePath\], "document", "agent", false\)/);
+});
+
 test("MCP exposes documentation guidance and memory-first changelog policy", () => {
   const server = readFileSync(new URL("../packages/mcp-server/src/server.ts", import.meta.url), "utf8");
   const handlers = readFileSync(new URL("../packages/mcp-server/src/register-all-tools.ts", import.meta.url), "utf8");

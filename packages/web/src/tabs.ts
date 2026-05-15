@@ -9,6 +9,7 @@ export const tabs: Array<{ id: TabId; label: string }> = [
   { id: "memory", label: "Memory" },
   { id: "approvals", label: "Approvals" },
   { id: "logs", label: "Tool Call Logs" },
+  { id: "contextHealth", label: "Context Health" },
   { id: "spddTrace", label: "SPDD Trace" },
   { id: "settings", label: "Settings" }
 ];

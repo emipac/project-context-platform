@@ -1,5 +1,18 @@
 import type { createAppServices } from "@pcp/infra";
-import type { RecordSpddRunDTO, SpddTraceFilter, StableIdLookupFilter } from "@pcp/core";
+import {
+  PlatformError,
+  clampContextGraphEdgeLimit,
+  CONTEXT_GRAPH_NODE_TYPES,
+  normalizeContextGraphNodeType,
+  normalizeContextGraphRootType,
+  normalizeContextGraphQueryMode,
+  normalizeContextGraphOrdering,
+  splitCommaQuery,
+  type ContextObservabilityFilter,
+  type RecordSpddRunDTO,
+  type SpddTraceFilter,
+  type StableIdLookupFilter
+} from "@pcp/core";
 import { mcpToolWrapper } from "./tool-wrapper.js";
 import { previewChunks, withClampedLimit } from "./preview.js";
 import { getDocumentationGuidelines } from "./documentation-guidelines.js";
@@ -39,6 +52,15 @@ export function registerAllTools(services: Services): Record<string, Handler> {
       diff: input.diff as string | undefined,
       requirement_ids: input.requirement_ids as string[] | undefined
     })),
+    get_context_freshness: wrap("get_context_freshness", (input) =>
+      services.contextObservability.getFreshnessReport(input.project_id as string | undefined, observabilityFilter(input, false))
+    ),
+    get_context_quality_metrics: wrap("get_context_quality_metrics", (input) =>
+      services.contextObservability.getQualityMetrics(input.project_id as string | undefined, observabilityFilter(input, false))
+    ),
+    get_context_graph: wrap("get_context_graph", (input) =>
+      services.contextObservability.getContextGraph(input.project_id as string | undefined, observabilityFilter(input, true))
+    ),
     remember_implementation_summary: wrap("remember_implementation_summary", (input) => services.memory.commitLowRisk(String(input.project_id), { type: "implementation_summary", ...input })),
     ingest_changed_files: wrap("ingest_changed_files", (input) => services.ingestion.ingestChanged(String(input.project_id), input.paths as string[] | undefined)),
     ingest_document: wrap("ingest_document", (input) => services.ingestion.ingestDocument(String(input.project_id), String(input.path))),
@@ -56,6 +78,70 @@ export function registerAllTools(services: Services): Record<string, Handler> {
     list_spdd_trace: wrap("list_spdd_trace", (input) => services.spddTrace.listTrace(input.project_id as string | undefined, spddTraceFilters(input))),
     lookup_spdd_trace: wrap("lookup_spdd_trace", (input) => services.spddTrace.lookupByTarget(input.project_id as string | undefined, spddTraceFilters(input)))
   };
+}
+
+function observabilityFilter(input: Record<string, unknown>, graph: boolean): ContextObservabilityFilter {
+  const filter: ContextObservabilityFilter = { include_stale: Boolean(input.include_stale) };
+  if (graph && input.limit !== undefined && input.limit !== null) {
+    filter.limit = clampContextGraphEdgeLimit(Number(input.limit));
+  }
+  if (graph && Array.isArray(input.types)) {
+    const types = input.types.map((item) => normalizeContextGraphNodeType(String(item)));
+    const allowed = new Set<string>(CONTEXT_GRAPH_NODE_TYPES as unknown as string[]);
+    const invalid = types.filter((item) => !allowed.has(item));
+    if (invalid.length) {
+      throw new PlatformError("VALIDATION_ERROR", "Invalid graph node types.", {
+        details: { invalid, allowed: [...allowed], aliases: { artifact: "spdd_artifact", run: "spdd_run", feature: "feature_ref" } }
+      });
+    }
+    filter.types = types;
+  }
+  if (graph) {
+    const modeRaw = input.mode;
+    if (modeRaw !== undefined && modeRaw !== null && String(modeRaw).trim() !== "") {
+      filter.mode = normalizeContextGraphQueryMode(String(modeRaw));
+    }
+    const rt = input.root_type;
+    if (typeof rt === "string" && rt.trim()) filter.root_type = normalizeContextGraphRootType(rt);
+    const rid = input.root_id;
+    if (typeof rid === "string" && rid.trim()) filter.root_id = rid.trim();
+
+    const depthRaw = input.depth;
+    if (depthRaw !== undefined && depthRaw !== null && String(depthRaw).trim() !== "") {
+      const d = Number(depthRaw);
+      if (!Number.isFinite(d)) {
+        throw new PlatformError("VALIDATION_ERROR", "Invalid graph depth parameter.", { details: { depth: depthRaw } });
+      }
+      filter.depth = d;
+    }
+
+    filter.edge_types = stringOrCommaList(input.edge_types);
+    filter.status = stringOrCommaList(input.status);
+    filter.relation = stringOrCommaList(input.relation);
+
+    const ord = input.ordering;
+    if (ord !== undefined && String(ord).trim() !== "") {
+      filter.ordering = normalizeContextGraphOrdering(String(ord));
+    }
+
+    if (typeof input.run_id === "string" && input.run_id.trim()) filter.run_id = input.run_id.trim();
+    if (typeof input.artifact_path === "string" && input.artifact_path.trim()) filter.artifact_path = input.artifact_path.trim();
+    if (typeof input.source_path === "string" && input.source_path.trim()) filter.source_path = input.source_path.trim();
+    if (typeof input.stable_id === "string" && input.stable_id.trim()) filter.stable_id = input.stable_id.trim();
+    if (typeof input.feature_ref === "string" && input.feature_ref.trim()) filter.feature_ref = input.feature_ref.trim();
+  }
+  const cfd = input.changed_file_detection;
+  if (cfd === "off" || cfd === "git" || cfd === "auto") filter.changed_file_detection = cfd;
+  return filter;
+}
+
+function stringOrCommaList(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const arr = value.map((v) => String(v).trim()).filter(Boolean);
+    return arr.length ? arr : undefined;
+  }
+  if (typeof value === "string") return splitCommaQuery(value);
+  return undefined;
 }
 
 function stableIdLookupFilters(input: Record<string, unknown>): StableIdLookupFilter {

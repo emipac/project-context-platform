@@ -304,6 +304,9 @@ Useful MCP tools include:
 - `ingest_changed_files`
 - `validate_ids`
 - `list_stable_ids`
+- `get_context_freshness`
+- `get_context_quality_metrics`
+- `get_context_graph`
 
 SPDD trace registry (metadata-backed catalog under `spdd/**`; not LightRAG indexing):
 

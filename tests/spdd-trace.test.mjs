@@ -44,6 +44,16 @@ test("SpddTraceService scans structured SPDD directories only", () => {
   assert.match(svc, /collectSpddMarkdownFiles/);
 });
 
+test("SpddTraceService can resolve anchored source paths through LightRAG", () => {
+  const svc = readFileSync(new URL("../packages/core/src/services/spdd-trace-service.ts", import.meta.url), "utf8");
+  const appServices = readFileSync(new URL("../packages/infra/src/app-services.ts", import.meta.url), "utf8");
+  assert.match(svc, /private readonly lightrag\?: LightRagAdapter/);
+  assert.match(svc, /resolveSourcePathViaLightRag/);
+  assert.match(svc, /this\.lightrag\.getDocument\(project_id, \{ source_path \}\)/);
+  assert.match(svc, /stable_ids \?\? \[\]\)\.length > 0/);
+  assert.match(appServices, /new SpddTraceService\(workspaces, repository, graphiti, toolCalls, lightrag\)/);
+});
+
 test("REST exposes SPDD trace routes", () => {
   const routes = readFileSync(new URL("../packages/api/src/routes.ts", import.meta.url), "utf8");
   assert.match(routes, /spdd-trace\/artifacts\/sync/);

@@ -8,6 +8,7 @@ import { Panel } from "./components/Panel.js";
 import { errorMessage } from "./error-message.js";
 import { SearchPanel } from "./tabs/SearchPanel.js";
 import { SettingsPanel } from "./tabs/SettingsPanel.js";
+import { ContextFreshnessPanel } from "./tabs/ContextFreshnessPanel.js";
 import { SpddTracePanel } from "./tabs/SpddTracePanel.js";
 import { tabs } from "./tabs.js";
 import type { SpddArtifactsPayload, SpddTraceBundle, TabId, Workspace } from "./types.js";
@@ -31,6 +32,9 @@ function App() {
   const [lookupSourcePath, setLookupSourcePath] = useState("");
   const [lookupChunkId, setLookupChunkId] = useState("");
   const [lookupFeatureRef, setLookupFeatureRef] = useState("");
+  const [includeStaleDocs, setIncludeStaleDocs] = useState(false);
+  const [includeStaleIds, setIncludeStaleIds] = useState(false);
+  const [includeStaleSpdd, setIncludeStaleSpdd] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,8 +46,15 @@ function App() {
 
   useEffect(() => {
     if (!activeProject) return;
-    void loadProjectData(activeProject);
+    setIncludeStaleDocs(false);
+    setIncludeStaleIds(false);
+    setIncludeStaleSpdd(false);
   }, [activeProject]);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    void loadProjectData(activeProject);
+  }, [activeProject, includeStaleDocs, includeStaleIds, includeStaleSpdd]);
 
   const activeProjectName = useMemo(() => projects.find((project) => project.project_id === activeProject)?.name ?? activeProject, [activeProject, projects]);
 
@@ -68,16 +79,19 @@ function App() {
   async function loadProjectData(projectId: string) {
     setError("");
     try {
+      const docQs = includeStaleDocs ? "?limit=200&include_stale=true" : "?limit=200";
+      const idsQs = includeStaleIds ? "?include_stale=true" : "";
+      const spddQs = includeStaleSpdd ? "?limit=100&include_stale=true" : "?limit=100";
       const [jobs, chunks, registry, memoryRows, approvalRows, logRows, settingsPayload, spddRunsPayload, spddArtifactsPayload] = await Promise.all([
         fetchJson<unknown[]>(`/api/projects/${projectId}/ingestion/status`),
-        fetchJson<unknown[]>(`/api/projects/${projectId}/documents`),
-        fetchJson<unknown[]>(`/api/projects/${projectId}/ids`),
+        fetchJson<unknown[]>(`/api/projects/${projectId}/documents${docQs}`),
+        fetchJson<unknown[]>(`/api/projects/${projectId}/ids${idsQs}`),
         fetchJson<unknown[]>(`/api/projects/${projectId}/memory`),
         fetchJson<unknown[]>(`/api/projects/${projectId}/approvals`),
         fetchJson<unknown[]>(`/api/projects/${projectId}/tool-call-logs`),
         fetchJson<Record<string, unknown>>(`/api/projects/${projectId}/settings`),
-        fetchJson<SpddTraceBundle>(`/api/projects/${projectId}/spdd-trace/runs?limit=100`),
-        fetchJson<SpddArtifactsPayload>(`/api/projects/${projectId}/spdd-trace/artifacts?limit=100`)
+        fetchJson<SpddTraceBundle>(`/api/projects/${projectId}/spdd-trace/runs${spddQs}`),
+        fetchJson<SpddArtifactsPayload>(`/api/projects/${projectId}/spdd-trace/artifacts${spddQs}`)
       ]);
       setIngestion(jobs);
       setDocuments(chunks);
@@ -117,6 +131,7 @@ function App() {
     if (lookupSourcePath.trim()) params.set("source_path", lookupSourcePath.trim());
     if (lookupChunkId.trim()) params.set("chunk_id", lookupChunkId.trim());
     if (lookupFeatureRef.trim()) params.set("feature_ref", lookupFeatureRef.trim());
+    if (includeStaleSpdd) params.set("include_stale", "true");
     const qs = params.toString();
     setError("");
     if (!qs) {
@@ -152,9 +167,35 @@ function App() {
       case "ingestion":
         return <Panel title="Ingestion" rows={ingestion} />;
       case "documents":
-        return <Panel title="Document Index" rows={documents} />;
+        return (
+          <Panel
+            title="Document Index"
+            rows={documents}
+            headerExtra={
+              <span className="panel-toolbar">
+                <label className="stale-toggle">
+                  <input type="checkbox" checked={includeStaleDocs} onChange={(event) => setIncludeStaleDocs(event.target.checked)} />
+                  Include stale
+                </label>
+              </span>
+            }
+          />
+        );
       case "ids":
-        return <Panel title="ID Registry" rows={ids} />;
+        return (
+          <Panel
+            title="ID Registry"
+            rows={ids}
+            headerExtra={
+              <span className="panel-toolbar">
+                <label className="stale-toggle">
+                  <input type="checkbox" checked={includeStaleIds} onChange={(event) => setIncludeStaleIds(event.target.checked)} />
+                  Include stale
+                </label>
+              </span>
+            }
+          />
+        );
       case "search":
         return <SearchPanel query={searchQuery} setQuery={setSearchQuery} onSearch={runSearch} rows={searchResults} />;
       case "memory":
@@ -163,6 +204,8 @@ function App() {
         return <Panel title="Approvals" rows={approvals} />;
       case "logs":
         return <Panel title="Tool Call Logs" rows={logs} />;
+      case "contextHealth":
+        return activeProject ? <ContextFreshnessPanel projectId={activeProject} /> : <Panel title="Context Health" rows={[]} />;
       case "spddTrace":
         return (
           <SpddTracePanel
@@ -177,6 +220,8 @@ function App() {
             setLookupSourcePath={setLookupSourcePath}
             setLookupChunkId={setLookupChunkId}
             setLookupFeatureRef={setLookupFeatureRef}
+            includeStaleTrace={includeStaleSpdd}
+            onIncludeStaleTraceChange={setIncludeStaleSpdd}
             onLookup={runSpddLookup}
             onSync={syncSpddArtifacts}
           />

@@ -1,5 +1,6 @@
 import {
   ContextComposerService,
+  ContextObservabilityService,
   GlobalRegistryStore,
   IdRegistryService,
   IngestionService,
@@ -26,6 +27,7 @@ export function createAppServices() {
   const lightrag = useLocalAdapters ? new LocalLightRagAdapter(workspaces, repository) : new LightRagHttpAdapter();
   const graphiti = useLocalAdapters ? new LocalGraphitiAdapter() : new GraphitiHttpAdapter();
   const toolCalls = new ProjectToolCallLogger(workspaces);
+  const contextObservability = new ContextObservabilityService(workspaces, repository, toolCalls);
   const projectDeletion = new ProjectDeletionService(workspaces, repository, lightrag, graphiti);
   return {
     registry,
@@ -36,6 +38,7 @@ export function createAppServices() {
     projectDeletion,
     adapterMode: useLocalAdapters ? "local" : "http",
     toolCalls,
+    contextObservability,
     ids: new IdRegistryService(repository),
     ingestion: new IngestionService(workspaces, lightrag, repository),
     retrieval: new RetrievalService(workspaces, lightrag),
@@ -43,6 +46,6 @@ export function createAppServices() {
     composer: new ContextComposerService(workspaces, lightrag, graphiti),
     validation: new ValidationService(workspaces),
     observability: new ObservabilityService(toolCalls),
-    spddTrace: new SpddTraceService(workspaces, repository, graphiti, toolCalls)
+    spddTrace: new SpddTraceService(workspaces, repository, graphiti, toolCalls, lightrag)
   };
 }

@@ -1,5 +1,20 @@
 import type { ReactNode } from "react";
 
+const STATUS_BADGE = new Set([
+  "current",
+  "stale",
+  "missing",
+  "duplicate",
+  "unresolved",
+  "ok",
+  "error",
+  "planned",
+  "in_progress",
+  "completed",
+  "reverted",
+  "superseded"
+]);
+
 export function formatCell(value: unknown): string {
   if (value == null) return "";
   if (Array.isArray(value)) return value.length > 3 ? `${value.length} items` : value.map(formatCell).join(", ");
@@ -27,7 +42,15 @@ export function formatDateTime(value: string): string {
   ].join(":");
 }
 
-export function renderCell(value: unknown): ReactNode {
+export function renderCell(key: string, value: unknown): ReactNode {
+  if (key === "status" && typeof value === "string" && STATUS_BADGE.has(value)) {
+    const safe = value.replace(/[^a-z0-9_-]/gi, "");
+    return (
+      <span className={`status-badge status-badge-${safe}`}>
+        <span className="status-badge-text">{value}</span>
+      </span>
+    );
+  }
   const text = formatCell(value);
   if (text.length <= 260) return text;
   return <span title={text}>{text.slice(0, 260)}...</span>;

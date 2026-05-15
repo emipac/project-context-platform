@@ -30,6 +30,8 @@ export function SpddTracePanel({
   setLookupSourcePath,
   setLookupChunkId,
   setLookupFeatureRef,
+  includeStaleTrace,
+  onIncludeStaleTraceChange,
   onLookup,
   onSync
 }: {
@@ -44,6 +46,8 @@ export function SpddTracePanel({
   setLookupSourcePath: (value: string) => void;
   setLookupChunkId: (value: string) => void;
   setLookupFeatureRef: (value: string) => void;
+  includeStaleTrace: boolean;
+  onIncludeStaleTraceChange: (value: boolean) => void;
   onLookup: (event: FormEvent) => void;
   onSync: () => void;
 }) {
@@ -63,7 +67,17 @@ export function SpddTracePanel({
             This catalog is metadata-backed and separate from LightRAG indexing.
           </p>
         </div>
-        <button type="button" className="btn btn-sync-artifacts" onClick={() => void onSync()}>Sync SPDD Artifacts</button>
+        <div className="context-health-actions">
+          <label className="stale-toggle">
+            <input
+              type="checkbox"
+              checked={includeStaleTrace}
+              onChange={(event) => onIncludeStaleTraceChange(event.target.checked)}
+            />
+            Include stale trace links
+          </label>
+          <button type="button" className="btn btn-sync-artifacts" onClick={() => void onSync()}>Sync SPDD Artifacts</button>
+        </div>
       </div>
       <div className="info-grid">
         <InfoCard

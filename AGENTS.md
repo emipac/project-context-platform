@@ -30,7 +30,7 @@ Use tools in this order when the question is about this project:
 
 7. `validate_ids`
    - Use before adding or changing stable IDs.
-   - When `list_stable_ids` exists, call it before inventing new IDs so occupied IDs can be checked by category/domain.
+   - Call `list_stable_ids` it before inventing new IDs so occupied IDs can be checked by category/domain.
 
 After the PCP tools identify relevant files, inspect the codebase directly with targeted searches and file reads. Do not exhaustively read the repository when PCP can narrow the scope.
 

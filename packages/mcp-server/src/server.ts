@@ -127,6 +127,49 @@ registerTool("validate_against_specs", "Validate an implementation plan or code 
   requirement_ids: z.array(z.string()).optional()
 });
 
+registerTool(
+  "get_context_freshness",
+  "Return a derived context freshness report from SQLite metadata with optional git-vs-index heuristic (not LightRAG).",
+  {
+    project_id: z.string().optional(),
+    include_stale: z.boolean().optional(),
+    changed_file_detection: z.enum(["off", "git", "auto"]).optional()
+  }
+);
+
+registerTool(
+  "get_context_quality_metrics",
+  "Return deterministic context quality metrics from metadata and MCP tool-call logs.",
+  {
+    project_id: z.string().optional(),
+    include_stale: z.boolean().optional()
+  }
+);
+
+registerTool(
+  "get_context_graph",
+  "Return a bounded derived context graph from SQLite SPDD metadata (snapshot or anchored neighborhood with filters and ordering — not LightRAG retrieval).",
+  {
+    project_id: z.string().optional(),
+    include_stale: z.boolean().optional(),
+    limit: z.number().optional(),
+    types: z.array(z.string()).optional(),
+    mode: z.enum(["snapshot", "anchored"]).optional(),
+    root_type: z.enum(["run", "artifact", "source_path", "stable_id", "feature"]).optional(),
+    root_id: z.string().optional(),
+    depth: z.number().optional(),
+    edge_types: z.array(z.string()).optional(),
+    status: z.array(z.string()).optional(),
+    relation: z.array(z.string()).optional(),
+    ordering: z.enum(["default", "newest_runs_first", "unresolved_first", "stable_id_anchored_first"]).optional(),
+    run_id: z.string().optional(),
+    artifact_path: z.string().optional(),
+    source_path: z.string().optional(),
+    stable_id: z.string().optional(),
+    feature_ref: z.string().optional()
+  }
+);
+
 registerTool("remember_implementation_summary", "Store a completed implementation summary in temporal memory.", {
   project_id: z.string().optional(),
   id: z.string().optional(),

@@ -730,7 +730,7 @@ Core routes:
 | `POST /api/projects/:project_id/ingest` | Full ingestion |
 | `POST /api/projects/:project_id/ingest/changed` | Changed-file ingestion |
 | `GET /api/projects/:project_id/ingestion/status` | Recent or specific ingestion jobs |
-| `GET /api/projects/:project_id/documents` | List/search indexed chunks |
+| `GET /api/projects/:project_id/documents` | List indexed chunks (`include_stale=true` reads SQLite chunks including stale rows) |
 | `POST /api/projects/:project_id/search` | Search docs |
 | `GET /api/projects/:project_id/specs/:stable_id` | Exact spec context by stable ID or alias |
 | `GET /api/projects/:project_id/ids` | List ID registry |
@@ -753,6 +753,9 @@ Memory and context routes:
 | --- | --- |
 | `POST /api/projects/:project_id/context/feature` | Compose feature implementation context |
 | `POST /api/projects/:project_id/context/review` | Compose review context |
+| `GET /api/projects/:project_id/context/freshness` | Derived freshness report from SQLite metadata (optional `changed_file_detection`, `include_stale`) |
+| `GET /api/projects/:project_id/context/quality` | Deterministic quality metrics |
+| `GET /api/projects/:project_id/context/graph` | Bounded derived graph (`limit`, comma-separated `types`, `include_stale`) |
 | `POST /api/projects/:project_id/validate` | Validate plan or diff against specs |
 | `GET /api/projects/:project_id/memory/facts` | Current memory facts |
 | `GET /api/projects/:project_id/memory/history` | Memory history |
@@ -806,6 +809,14 @@ Workflow:
 | `ingest_document` | Index one document |
 | `get_ingestion_status` | Read ingestion jobs |
 | `validate_ids` | Find duplicate IDs |
+
+Context observability (derived SQLite read models, not LightRAG):
+
+| Tool | Purpose |
+| --- | --- |
+| `get_context_freshness` | Freshness signals (metadata plus optional git heuristic via `changed_file_detection`) |
+| `get_context_quality_metrics` | Ratios and counts from metadata + MCP tool-call logs |
+| `get_context_graph` | Bounded derived graph nodes/edges from SPDD trace metadata |
 
 SPDD trace registry:
 

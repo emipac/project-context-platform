@@ -391,6 +391,45 @@ pre {
   margin: 0;
 }
 
+.context-health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.panel-toolbar {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stale-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #243447;
+  cursor: pointer;
+  user-select: none;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #c9d3df;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #ffffff;
+}
+
+.status-badge-text {
+  color: #1f2933;
+}
+
 @media (max-width: 720px) {
   header,
   .table-toolbar,

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { createAppServices } from "@pcp/infra";
-import { loadProjectConfig, PlatformError, type SpddTraceFilter } from "@pcp/core";
+import { loadProjectConfig, PlatformError, clampContextGraphEdgeLimit, CONTEXT_GRAPH_NODE_TYPES, type ContextObservabilityFilter, type SpddTraceFilter, normalizeContextGraphNodeType, normalizeContextGraphRootType, normalizeContextGraphQueryMode, normalizeContextGraphOrdering, splitCommaQuery } from "@pcp/core";
 
 type Services = ReturnType<typeof createAppServices>;
 
@@ -59,7 +59,16 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
   app.post("/api/projects/:project_id/ingest", async (request) => services.ingestion.ingestFull(params(request).project_id, z.object({ confirmed: z.boolean().optional() }).parse(request.body ?? {})));
   app.post("/api/projects/:project_id/ingest/changed", async (request) => services.ingestion.ingestChanged(params(request).project_id, z.object({ paths: z.array(z.string()).optional() }).parse(request.body ?? {}).paths));
   app.get("/api/projects/:project_id/ingestion/status", async (request) => services.ingestion.getIngestionStatus(params(request).project_id, query(request).job_id));
-  app.get("/api/projects/:project_id/documents", async (request) => services.retrieval.searchDocs(params(request).project_id, "", { limit: Number(query(request).limit ?? 200) }));
+  app.get("/api/projects/:project_id/documents", async (request) => {
+    const project_id = params(request).project_id;
+    const q = query(request);
+    const lim = Math.min(500, Math.max(1, Number(q.limit ?? 200)));
+    if (q.include_stale === "true") {
+      const chunks = await services.repository.listChunks(project_id);
+      return chunks.slice(0, lim);
+    }
+    return services.retrieval.searchDocs(project_id, "", { limit: lim });
+  });
   app.post("/api/projects/:project_id/search", async (request) => {
     const body = z.object({ query: z.string(), limit: z.number().optional(), document_types: z.array(z.string()).optional() }).parse(request.body);
     return services.retrieval.searchDocs(params(request).project_id, body.query, body);
@@ -83,6 +92,12 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
     changed_files: z.array(z.string()).optional(),
     diff: z.string().optional()
   }).parse(request.body ?? {})));
+  app.get("/api/projects/:project_id/context/freshness", async (request) =>
+    services.contextObservability.getFreshnessReport(params(request).project_id, parseContextObsFilter(query(request), false)));
+  app.get("/api/projects/:project_id/context/quality", async (request) =>
+    services.contextObservability.getQualityMetrics(params(request).project_id, parseContextObsFilter(query(request), false)));
+  app.get("/api/projects/:project_id/context/graph", async (request) =>
+    services.contextObservability.getContextGraph(params(request).project_id, parseContextObsFilter(query(request), true)));
   app.post("/api/projects/:project_id/validate", async (request) => services.composer.validateAgainstSpecs(params(request).project_id, z.object({
     plan: z.string().optional(),
     diff: z.string().optional(),
@@ -163,6 +178,47 @@ function spddTraceFilterFromQuery(q: Record<string, string | undefined>): SpddTr
     include_stale: q.include_stale === "true",
     limit: parseSpddLimit(q.limit)
   };
+}
+
+function parseContextObsFilter(q: Record<string, string | undefined>, graph: boolean): ContextObservabilityFilter {
+  const include_stale = q.include_stale === "true";
+  const filter: ContextObservabilityFilter = { include_stale };
+  if (graph) {
+    filter.limit = clampContextGraphEdgeLimit(q.limit !== undefined ? Number(q.limit) : undefined);
+    const rawTypes = q.types?.trim();
+    if (rawTypes) {
+      const types = rawTypes.split(",").map((item) => normalizeContextGraphNodeType(item)).filter(Boolean);
+      const allowed = new Set<string>(CONTEXT_GRAPH_NODE_TYPES as unknown as string[]);
+      const invalid = types.filter((item) => !allowed.has(item));
+      if (invalid.length) {
+        throw new PlatformError("VALIDATION_ERROR", "Invalid graph node type filter.", { details: { invalid } });
+      }
+      filter.types = types;
+    }
+    filter.mode = normalizeContextGraphQueryMode(q.mode);
+    if (q.root_type?.trim()) filter.root_type = normalizeContextGraphRootType(q.root_type);
+    if (q.root_id?.trim()) filter.root_id = q.root_id.trim();
+    if (q.depth !== undefined && String(q.depth).trim() !== "") {
+      const d = Number(q.depth);
+      if (!Number.isFinite(d)) {
+        throw new PlatformError("VALIDATION_ERROR", "Invalid graph depth parameter.", { details: { depth: q.depth } });
+      }
+      filter.depth = d;
+    }
+    filter.edge_types = splitCommaQuery(q.edge_types);
+    filter.status = splitCommaQuery(q.status);
+    filter.relation = splitCommaQuery(q.relation);
+    filter.ordering = q.ordering?.trim() ? normalizeContextGraphOrdering(q.ordering) : undefined;
+    if (q.run_id?.trim()) filter.run_id = q.run_id.trim();
+    if (q.artifact_path?.trim()) filter.artifact_path = q.artifact_path.trim();
+    if (q.source_path?.trim()) filter.source_path = q.source_path.trim();
+    if (q.stable_id?.trim()) filter.stable_id = q.stable_id.trim();
+    if (q.feature_ref?.trim()) filter.feature_ref = q.feature_ref.trim();
+  }
+  if (q.changed_file_detection) {
+    filter.changed_file_detection = z.enum(["off", "git", "auto"]).parse(q.changed_file_detection);
+  }
+  return filter;
 }
 
 function params(request: { params: unknown }): Record<string, string> {
