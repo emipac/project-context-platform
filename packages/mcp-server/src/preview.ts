@@ -1,4 +1,4 @@
-import type { CanonicalDocumentChunk } from "@pcp/core";
+import type { CanonicalDocumentChunk, LightRagSearchBudget } from "@pcp/core";
 
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 10;
@@ -26,6 +26,29 @@ export function clampLimit(value: unknown): number {
 
 export function withClampedLimit(input: Record<string, unknown>): Record<string, unknown> {
   return { ...input, limit: clampLimit(input.limit) };
+}
+
+const BUDGET_OPTIONAL_KEYS = [
+  "document_types",
+  "source_path_prefixes",
+  "chunk_kinds",
+  "query_mode",
+  "top_k",
+  "chunk_top_k",
+  "max_total_tokens",
+  "timeout_ms",
+  "retries"
+] as const;
+
+export function retrievalBudgetFromToolInput(input: Record<string, unknown>): LightRagSearchBudget {
+  const budget: LightRagSearchBudget = { limit: clampLimit(input.limit) };
+  for (const key of BUDGET_OPTIONAL_KEYS) {
+    const value = input[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value === "number" && !Number.isFinite(value)) continue;
+    (budget as Record<string, unknown>)[key] = value;
+  }
+  return budget;
 }
 
 export function previewChunks(chunks: CanonicalDocumentChunk[]): PreviewChunk[] {

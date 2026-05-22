@@ -7,3 +7,4 @@ export * from "./http/http-client.js";
 export * from "./http/lightrag-http-adapter.js";
 export * from "./http/graphiti-http-adapter.js";
 export * from "./app-services.js";
+export * from "./runtime-identity.js";

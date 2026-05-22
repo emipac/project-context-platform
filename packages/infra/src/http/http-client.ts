@@ -8,27 +8,39 @@ export interface HttpClientOptions {
   defaultHeaders?: Record<string, string>;
 }
 
+export type PerCallHttpOptions = {
+  timeoutMs?: number;
+  retries?: number;
+};
+
 export class JsonHttpClient {
   constructor(private readonly options: HttpClientOptions) {}
 
-  async get<T>(path: string, project_id?: string): Promise<T> {
-    return this.request<T>("GET", path, undefined, project_id);
+  async get<T>(path: string, project_id?: string, perCallOptions?: PerCallHttpOptions): Promise<T> {
+    return this.request<T>("GET", path, undefined, project_id, perCallOptions);
   }
 
-  async post<T>(path: string, body: Record<string, unknown>, project_id?: string): Promise<T> {
-    return this.request<T>("POST", path, body, project_id);
+  async post<T>(path: string, body: Record<string, unknown>, project_id?: string, perCallOptions?: PerCallHttpOptions): Promise<T> {
+    return this.request<T>("POST", path, body, project_id, perCallOptions);
   }
 
-  async delete<T>(path: string, project_id?: string): Promise<T> {
-    return this.request<T>("DELETE", path, undefined, project_id);
+  async delete<T>(path: string, project_id?: string, perCallOptions?: PerCallHttpOptions): Promise<T> {
+    return this.request<T>("DELETE", path, undefined, project_id, perCallOptions);
   }
 
-  async request<T>(method: string, path: string, body?: Record<string, unknown>, project_id?: string): Promise<T> {
-    const retries = this.options.retries ?? 1;
+  async request<T>(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    project_id?: string,
+    perCallOptions?: PerCallHttpOptions
+  ): Promise<T> {
+    const retries = perCallOptions?.retries ?? this.options.retries ?? 1;
+    const timeoutMs = perCallOptions?.timeoutMs ?? this.options.timeoutMs;
     let lastError: unknown;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetch(new URL(path, this.options.baseUrl), {
           method,

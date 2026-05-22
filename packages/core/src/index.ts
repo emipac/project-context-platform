@@ -14,3 +14,6 @@ export * from "./services/context-composer-service.js";
 export * from "./services/validation-service.js";
 export * from "./services/observability-service.js";
 export * from "./services/spdd-trace-service.js";
+export * from "./services/context-observability-service.js";
+export * from "./context/context-graph-params.js";
+export * from "./retrieval/manifest-search-ranking.js";

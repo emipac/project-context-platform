@@ -16,7 +16,15 @@ registerTool("search_docs", "Search canonical project documentation and return t
   project_id: z.string().optional(),
   query: z.string(),
   limit: z.number().optional(),
-  document_types: z.array(z.string()).optional()
+  document_types: z.array(z.string()).optional(),
+  source_path_prefixes: z.array(z.string()).optional(),
+  chunk_kinds: z.array(z.string()).optional(),
+  query_mode: z.enum(["naive", "local", "hybrid", "mix", "global"]).optional(),
+  top_k: z.number().optional(),
+  chunk_top_k: z.number().optional(),
+  max_total_tokens: z.number().optional(),
+  timeout_ms: z.number().optional(),
+  retries: z.number().optional()
 });
 
 registerTool("get_document", "Retrieve full document chunk content by chunk ID or source path.", {
@@ -35,7 +43,16 @@ registerTool("get_related_code", "Retrieve source files and tests related to a f
   project_id: z.string().optional(),
   feature_name: z.string().optional(),
   requirement_id: z.string().optional(),
-  limit: z.number().optional()
+  limit: z.number().optional(),
+  document_types: z.array(z.string()).optional(),
+  source_path_prefixes: z.array(z.string()).optional(),
+  chunk_kinds: z.array(z.string()).optional(),
+  query_mode: z.enum(["naive", "local", "hybrid", "mix", "global"]).optional(),
+  top_k: z.number().optional(),
+  chunk_top_k: z.number().optional(),
+  max_total_tokens: z.number().optional(),
+  timeout_ms: z.number().optional(),
+  retries: z.number().optional()
 });
 
 registerTool("get_requirement_sources", "Return all known canonical sources related to a requirement.", {
@@ -110,22 +127,72 @@ registerTool("prepare_feature_context", "Prepare full implementation context for
   project_id: z.string().optional(),
   feature_name: z.string(),
   requirement_ids: z.array(z.string()).optional(),
-  task_id: z.string().optional()
+  task_id: z.string().optional(),
+  retrieval_mode: z.enum(["fast", "semantic", "deep"]).optional(),
+  document_types: z.array(z.string()).optional(),
+  source_path_prefixes: z.array(z.string()).optional(),
+  chunk_kinds: z.array(z.string()).optional()
 });
 
 registerTool("prepare_review_context", "Prepare review context for changed files or a diff.", {
   project_id: z.string().optional(),
   changed_files: z.array(z.string()).optional(),
-  diff: z.string().optional(),
-  requirement_ids: z.array(z.string()).optional()
+  diff: z.string().optional()
 });
 
 registerTool("validate_against_specs", "Validate an implementation plan or code diff against relevant specifications.", {
   project_id: z.string().optional(),
   plan: z.string().optional(),
   diff: z.string().optional(),
-  requirement_ids: z.array(z.string()).optional()
+  requirement_ids: z.array(z.string()).optional(),
+  artifact_path: z.string().optional(),
+  changed_files: z.array(z.string()).optional(),
+  source_paths: z.array(z.string()).optional(),
+  mode: z.enum(["fast", "strict"]).optional()
 });
+
+registerTool(
+  "get_context_freshness",
+  "Return a derived context freshness report from SQLite metadata with optional git-vs-index heuristic (not LightRAG).",
+  {
+    project_id: z.string().optional(),
+    include_stale: z.boolean().optional(),
+    changed_file_detection: z.enum(["off", "git", "auto"]).optional()
+  }
+);
+
+registerTool(
+  "get_context_quality_metrics",
+  "Return deterministic context quality metrics from metadata and MCP tool-call logs.",
+  {
+    project_id: z.string().optional(),
+    include_stale: z.boolean().optional()
+  }
+);
+
+registerTool(
+  "get_context_graph",
+  "Return a bounded derived context graph from SQLite SPDD metadata (snapshot or anchored neighborhood with filters and ordering — not LightRAG retrieval).",
+  {
+    project_id: z.string().optional(),
+    include_stale: z.boolean().optional(),
+    limit: z.number().optional(),
+    types: z.array(z.string()).optional(),
+    mode: z.enum(["snapshot", "anchored"]).optional(),
+    root_type: z.enum(["run", "artifact", "source_path", "stable_id", "feature"]).optional(),
+    root_id: z.string().optional(),
+    depth: z.number().optional(),
+    edge_types: z.array(z.string()).optional(),
+    status: z.array(z.string()).optional(),
+    relation: z.array(z.string()).optional(),
+    ordering: z.enum(["default", "newest_runs_first", "unresolved_first", "stable_id_anchored_first"]).optional(),
+    run_id: z.string().optional(),
+    artifact_path: z.string().optional(),
+    source_path: z.string().optional(),
+    stable_id: z.string().optional(),
+    feature_ref: z.string().optional()
+  }
+);
 
 registerTool("remember_implementation_summary", "Store a completed implementation summary in temporal memory.", {
   project_id: z.string().optional(),
@@ -140,8 +207,7 @@ registerTool("remember_implementation_summary", "Store a completed implementatio
 
 registerTool("ingest_changed_files", "Index changed files for a project workspace.", {
   project_id: z.string().optional(),
-  paths: z.array(z.string()).optional(),
-  confirmed: z.boolean().optional()
+  paths: z.array(z.string()).optional()
 });
 
 registerTool("ingest_document", "Index a specific document or source file.", {
@@ -222,6 +288,10 @@ registerTool("lookup_spdd_trace", "Reverse lookup SPDD trace rows using stable I
   target_id: z.string().optional(),
   include_stale: z.boolean().optional(),
   limit: z.number().optional()
+});
+
+registerTool("platform_runtime", "Return Node process identity and adapter mode for diagnostics (does not call LightRAG).", {
+  project_id: z.string().optional()
 });
 
 function registerTool(name: string, description: string, inputSchema: Record<string, z.ZodType>) {

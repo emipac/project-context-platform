@@ -289,31 +289,34 @@ Example Cursor MCP configuration using the published npm package:
 After changing MCP configuration or environment variables, restart the MCP server
 from Cursor's MCP settings.
 
-Useful MCP tools include:
+Useful MCP tools include (full schemas live in `packages/mcp-server/src/server.ts`; handlers in `register-all-tools.ts`):
 
-- `search_docs`
-- `get_document`
-- `get_spec_context`
-- `get_related_code`
-- `get_requirement_sources`
-- `get_documentation_guidelines`
-- `remember_decision`
-- `remember_requirement_change`
-- `remember_implementation_summary`
-- `remember_review`
-- `ingest_changed_files`
-- `validate_ids`
-- `list_stable_ids`
+- Retrieval: `search_docs`, `get_document`, `get_spec_context`, `get_related_code`, `get_requirement_sources`
+- Guidance: `get_documentation_guidelines`
+- Composer / validation: `prepare_feature_context`, `prepare_review_context`, `validate_against_specs`
+- Memory: `remember_decision`, `remember_review`, `remember_requirement_change`, `remember_approval`, `remember_implementation_summary`, `get_current_facts`, `get_history`
+- Ingestion: `ingest_changed_files`, `ingest_document`, `get_ingestion_status`
+- IDs: `validate_ids`, `list_stable_ids`
+- Observability: `get_context_freshness`, `get_context_quality_metrics`, `get_context_graph`
+- Diagnostics: `platform_runtime` (Node process / adapter identity; no LightRAG call)
 
 SPDD trace registry (metadata-backed catalog under `spdd/**`; not LightRAG indexing):
 
 - `sync_spdd_artifacts`
-- `record_spdd_run`
+- `record_spdd_run` (`summary` is required and capped at **1000** characters server-side)
 - `list_spdd_trace`
-- `lookup_spdd_trace`
+- `lookup_spdd_trace` (requires at least one of `stable_id`, `source_path`, `chunk_id`, `feature_ref`, or paired `target_type` + `target_id`; **not** `link_id`)
 
-Broad search tools return compact previews. Use `get_document` or
-`get_spec_context` when an agent needs full content.
+**Search budgets (MCP):** `search_docs` and `get_related_code` forward optional LightRAG budgets: `document_types`, `source_path_prefixes`, `chunk_kinds`, `query_mode` (`naive` | `local` | `hybrid` | `mix` | `global`), `top_k`, `chunk_top_k`, `max_total_tokens`, `timeout_ms`, `retries`. **`limit` is clamped** between defaults used for previews (default **5**, maximum **10**); see `packages/mcp-server/src/preview.ts`. `/v1/search` ranking applies a **source-diversity cap** (default **2** chunks per `source_path` after score sort, with backfill to reach `limit`).
+
+**Responses:** Each tool returns JSON (text content plus structured payload). Chunk-list tools that use previews return objects with `preview`, `content_length`, `truncated`, and chunk metadata—not necessarily full `content` for every row.
+
+Broad search tools return compact previews for **canonical context discovery**. Use `get_document` or
+`get_spec_context` when an agent needs **indexed** chunk text: Markdown chunks still carry substantive document sections, while **non-Markdown source files** (for example `.ts`, `.json`) are stored as **lightweight discovery summaries** (`path`, `basename`, `path_tokens`, `primary_symbol`, language, hashes, stable IDs, bounded symbols)—not full source bodies. Open the workspace file directly when you need exact implementation text.
+
+For **implementation lookup**, prefer `get_related_code` or scoped `search_docs` with `document_types: ["code"]` and/or `source_path_prefixes`, then read files from disk. Do not treat broad unscoped `search_docs` as authoritative for finding a specific source file.
+
+`validate_against_specs` matches `POST /api/projects/:project_id/validate`: it runs a **deterministic, evidence-first** pass over indexed specs (`requirement_ids`), optional SPDD `artifact_path` / trace linkage for paths (`changed_files`, `source_paths`), freshness signals, and temporal-memory overlap hints. Use `mode: "strict"` when unresolved requirements or conflicting memory cues should surface as errors rather than warnings; responses always include `findings`, `missing_evidence`, `confidence`, and `warnings` (still heuristic overall—never a substitute for tests or review).
 
 ## Configuration
 

@@ -1,4 +1,13 @@
-import type { CanonicalDocumentChunk, DocumentSelector, IngestDocumentInput, IngestionMode, LightRagAdapter } from "@pcp/core";
+import type {
+  CanonicalDocumentChunk,
+  DocumentIndexOptions,
+  DocumentIndexResponse,
+  DocumentSelector,
+  IngestDocumentInput,
+  IngestionMode,
+  LightRagAdapter,
+  LightRagSearchBudget
+} from "@pcp/core";
 import { PlatformError } from "@pcp/core";
 import { JsonHttpClient } from "./http-client.js";
 
@@ -22,12 +31,25 @@ export class LightRagHttpAdapter implements LightRagAdapter {
   }
 
   async getHealth(project_id?: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(this.healthPath, project_id);
+    const path = project_id ? `${this.healthPath}?project_id=${encodeURIComponent(project_id)}` : this.healthPath;
+    return this.client.get<Record<string, unknown>>(path, project_id);
   }
 
-  async searchDocs(project_id: string, query: string, opts: Record<string, unknown> = {}): Promise<CanonicalDocumentChunk[]> {
-    const response = await this.client.post<{ chunks: CanonicalDocumentChunk[] }>("/v1/search", { project_id, query, ...opts }, project_id);
+  async getStorageHealth(project_id?: string, deep = true): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams();
+    if (project_id) params.set("project_id", project_id);
+    params.set("deep", String(deep));
+    return this.client.get<Record<string, unknown>>(`/v1/storage/health?${params.toString()}`, project_id);
+  }
+
+  async searchDocs(project_id: string, query: string, budget: LightRagSearchBudget = {}): Promise<CanonicalDocumentChunk[]> {
+    const body = searchBody(project_id, query, budget);
+    const response = await this.client.post<{ chunks: CanonicalDocumentChunk[] }>("/v1/search", body, project_id, perCallFromBudget(budget));
     return response.chunks ?? [];
+  }
+
+  async listDocuments(project_id: string, opts: DocumentIndexOptions = {}): Promise<DocumentIndexResponse> {
+    return this.client.post<DocumentIndexResponse>("/v1/documents", { project_id, ...opts }, project_id);
   }
 
   async getSpecContext(project_id: string, spec_id: string, includeNeighbors = false): Promise<CanonicalDocumentChunk[]> {
@@ -35,8 +57,9 @@ export class LightRagHttpAdapter implements LightRagAdapter {
     return response.chunks ?? [];
   }
 
-  async getRelatedCode(project_id: string, featureOrReq: string, opts: Record<string, unknown> = {}): Promise<CanonicalDocumentChunk[]> {
-    const response = await this.client.post<{ chunks: CanonicalDocumentChunk[] }>("/v1/related-code", { project_id, query: featureOrReq, ...opts }, project_id);
+  async getRelatedCode(project_id: string, featureOrReq: string, budget: LightRagSearchBudget = {}): Promise<CanonicalDocumentChunk[]> {
+    const body = relatedCodeBody(project_id, featureOrReq, budget);
+    const response = await this.client.post<{ chunks: CanonicalDocumentChunk[] }>("/v1/related-code", body, project_id, perCallFromBudget(budget));
     return response.chunks ?? [];
   }
 
@@ -68,4 +91,29 @@ export class LightRagHttpAdapter implements LightRagAdapter {
       return false;
     }
   }
+}
+
+function perCallFromBudget(budget: LightRagSearchBudget): { timeoutMs?: number; retries?: number } {
+  const out: { timeoutMs?: number; retries?: number } = {};
+  if (budget.timeout_ms !== undefined) out.timeoutMs = budget.timeout_ms;
+  if (budget.retries !== undefined) out.retries = budget.retries;
+  return out;
+}
+
+function searchBody(project_id: string, query: string, budget: LightRagSearchBudget): Record<string, unknown> {
+  const { retries: _retries, ...rest } = budget;
+  const body: Record<string, unknown> = { project_id, query };
+  for (const [key, value] of Object.entries(rest)) {
+    if (value !== undefined) body[key] = value;
+  }
+  return body;
+}
+
+function relatedCodeBody(project_id: string, query: string, budget: LightRagSearchBudget): Record<string, unknown> {
+  const { retries: _retries, ...rest } = budget;
+  const body: Record<string, unknown> = { project_id, query };
+  for (const [key, value] of Object.entries(rest)) {
+    if (value !== undefined) body[key] = value;
+  }
+  return body;
 }

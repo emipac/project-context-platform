@@ -59,6 +59,16 @@ export class JsonMetadataRepository implements MetadataRepository {
     this.write(db);
   }
 
+  async markStaleDocumentChunksForPaths(project_id: string, paths: string[], reason = "replaced"): Promise<void> {
+    const db = this.read();
+    db.chunks = db.chunks.map((chunk) =>
+      chunk.project_id === project_id && paths.includes(chunk.source_path) && chunk.status === "current"
+        ? { ...chunk, status: "stale", stale_reason: reason, updated_at: new Date().toISOString() }
+        : chunk
+    );
+    this.write(db);
+  }
+
   async markStaleRegistryEntriesExceptPaths(project_id: string, activePaths: string[], reason = "moved"): Promise<void> {
     const db = this.read();
     const active = new Set(activePaths);

@@ -14,6 +14,7 @@ export type TabId =
   | "memory"
   | "approvals"
   | "logs"
+  | "contextHealth"
   | "spddTrace"
   | "settings";
 
@@ -28,3 +29,23 @@ export interface SpddArtifactsPayload {
   artifacts: unknown[];
   warnings: unknown[];
 }
+
+export interface DocumentIndexPayload {
+  chunks: unknown[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export type ServerPaginationChange = {
+  limit: number;
+  offset: number;
+};
+
+export type TablePaginationConfig = {
+  mode: "server";
+  total: number;
+  limit: number;
+  offset: number;
+  onChange: (next: ServerPaginationChange) => void;
+};

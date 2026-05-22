@@ -22,6 +22,7 @@ class LightRagSettings:
     top_k: int
     chunk_top_k: int
     max_total_tokens: int
+    search_timeout_ms: int
 
 
 def load_settings() -> LightRagSettings:
@@ -43,6 +44,7 @@ def load_settings() -> LightRagSettings:
         top_k=bounded_int(os.environ.get("LIGHTRAG_TOP_K"), fallback=40, minimum=1, maximum=200),
         chunk_top_k=bounded_int(os.environ.get("LIGHTRAG_CHUNK_TOP_K"), fallback=16, minimum=1, maximum=100),
         max_total_tokens=bounded_int(os.environ.get("LIGHTRAG_MAX_TOTAL_TOKENS"), fallback=20000, minimum=1000, maximum=100000),
+        search_timeout_ms=bounded_int(os.environ.get("LIGHTRAG_SEARCH_TIMEOUT_MS"), fallback=15000, minimum=100, maximum=120000),
     )
 
 

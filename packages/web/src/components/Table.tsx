@@ -7,15 +7,34 @@ import {
   nextSort,
   renderCell
 } from "../formatters.js";
+import type { TablePaginationConfig } from "../types.js";
 
-export function Table({ rows }: { rows: unknown[] }) {
+export function Table({
+  rows,
+  preferredKeys = [],
+  maxColumns = 8,
+  pagination
+}: {
+  rows: unknown[];
+  preferredKeys?: string[];
+  maxColumns?: number;
+  pagination?: TablePaginationConfig;
+}) {
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(10);
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
 
+  const isServer = Boolean(pagination);
+  const serverLimit = pagination?.limit ?? 0;
+  const serverOffset = pagination?.offset ?? 0;
+  const serverTotal = pagination?.total ?? 0;
+
   const normalizedRows = useMemo(() => rows.map((row) => row as Record<string, unknown>), [rows]);
-  const keys = useMemo(() => Array.from(new Set(normalizedRows.flatMap((row) => Object.keys(row)))).slice(0, 8), [normalizedRows]);
+  const keys = useMemo(() => {
+    const allKeys = Array.from(new Set(normalizedRows.flatMap((row) => Object.keys(row))));
+    return [...preferredKeys.filter((key) => allKeys.includes(key)), ...allKeys.filter((key) => !preferredKeys.includes(key))].slice(0, maxColumns);
+  }, [maxColumns, normalizedRows, preferredKeys]);
   const filteredRows = useMemo(() => {
     const term = filter.trim().toLowerCase();
     const visibleRows = term
@@ -24,15 +43,35 @@ export function Table({ rows }: { rows: unknown[] }) {
     if (!sort) return visibleRows;
     return [...visibleRows].sort((left, right) => compareCells(left[sort.key], right[sort.key], sort.direction));
   }, [filter, keys, normalizedRows, sort]);
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const pageRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const firstRow = filteredRows.length ? (currentPage - 1) * pageSize + 1 : 0;
-  const lastRow = Math.min(currentPage * pageSize, filteredRows.length);
+
+  const totalPagesClient = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const currentPageClient = Math.min(page, totalPagesClient);
+  const pageRowsClient = filteredRows.slice((currentPageClient - 1) * pageSize, currentPageClient * pageSize);
+  const firstRowClient = filteredRows.length ? (currentPageClient - 1) * pageSize + 1 : 0;
+  const lastRowClient = Math.min(currentPageClient * pageSize, filteredRows.length);
+
+  const totalPagesServer = serverTotal > 0 && serverLimit > 0 ? Math.max(1, Math.ceil(serverTotal / serverLimit)) : 1;
+  const currentPageServer = serverLimit > 0 ? Math.floor(serverOffset / serverLimit) + 1 : 1;
+  const pageRowsServer = filteredRows;
+  const firstRowServer = serverTotal === 0 ? 0 : serverOffset + 1;
+  const lastRowServer = serverTotal === 0 ? 0 : Math.min(serverOffset + rows.length, serverTotal);
+
+  const totalPages = isServer ? totalPagesServer : totalPagesClient;
+  const currentPage = isServer ? currentPageServer : currentPageClient;
+  const pageRows = isServer ? pageRowsServer : pageRowsClient;
+  const firstRow = isServer ? firstRowServer : firstRowClient;
+  const lastRow = isServer ? lastRowServer : lastRowClient;
+  const rangeTotal = isServer ? serverTotal : filteredRows.length;
+
+  const maxServerOffset =
+    serverTotal > 0 && serverLimit > 0 ? Math.max(0, Math.floor((serverTotal - 1) / serverLimit) * serverLimit) : 0;
+  const canServerPrev = serverTotal > 0 && serverOffset > 0;
+  const canServerNext = serverTotal > 0 && serverOffset + serverLimit < serverTotal;
 
   useEffect(() => {
+    if (isServer) return;
     setPage(1);
-  }, [filter, pageSize, rows]);
+  }, [filter, isServer, pageSize, rows]);
 
   if (!rows.length) return <p className="empty">No rows</p>;
   return (
@@ -44,8 +83,22 @@ export function Table({ rows }: { rows: unknown[] }) {
         </label>
         <label>
           Rows
-          <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
-            {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+          <select
+            value={isServer ? serverLimit : pageSize}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (isServer) {
+                pagination!.onChange({ limit: value, offset: 0 });
+              } else {
+                setPageSize(value);
+              }
+            }}
+          >
+            {[10, 25, 50, 100].map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -67,8 +120,12 @@ export function Table({ rows }: { rows: unknown[] }) {
             </thead>
             <tbody>
               {pageRows.map((row, index) => (
-                <tr key={`${currentPage}-${index}`}>
-                  {keys.map((key) => <td className={isLongCell(key, row[key]) ? "long-cell" : ""} key={key}>{renderCell(row[key])}</td>)}
+                <tr key={isServer ? `s-${serverOffset}-${index}` : `${currentPageClient}-${index}`}>
+                  {keys.map((key) => (
+                    <td className={isLongCell(key, row[key]) ? "long-cell" : ""} key={key}>
+                      {renderCell(key, row[key])}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -79,13 +136,63 @@ export function Table({ rows }: { rows: unknown[] }) {
       )}
 
       <div className="pagination">
-        <span>{firstRow}-{lastRow} of {filteredRows.length}</span>
+        <span>
+          {firstRow}-{lastRow} of {rangeTotal}
+        </span>
         <div>
-          <button type="button" disabled={currentPage === 1} onClick={() => setPage(1)}>First</button>
-          <button type="button" disabled={currentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button>
-          <span>Page {currentPage} of {totalPages}</span>
-          <button type="button" disabled={currentPage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</button>
-          <button type="button" disabled={currentPage === totalPages} onClick={() => setPage(totalPages)}>Last</button>
+          {isServer ? (
+            <>
+              <button
+                type="button"
+                disabled={!canServerPrev}
+                onClick={() => pagination!.onChange({ limit: serverLimit, offset: 0 })}
+              >
+                First
+              </button>
+              <button
+                type="button"
+                disabled={!canServerPrev}
+                onClick={() => pagination!.onChange({ limit: serverLimit, offset: Math.max(0, serverOffset - serverLimit) })}
+              >
+                Previous
+              </button>
+              <span>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={!canServerNext}
+                onClick={() => pagination!.onChange({ limit: serverLimit, offset: Math.min(maxServerOffset, serverOffset + serverLimit) })}
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                disabled={!canServerNext}
+                onClick={() => pagination!.onChange({ limit: serverLimit, offset: maxServerOffset })}
+              >
+                Last
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" disabled={currentPage === 1} onClick={() => setPage(1)}>
+                First
+              </button>
+              <button type="button" disabled={currentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                Previous
+              </button>
+              <span>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button type="button" disabled={currentPage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+                Next
+              </button>
+              <button type="button" disabled={currentPage === totalPages} onClick={() => setPage(totalPages)}>
+                Last
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
