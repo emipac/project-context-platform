@@ -1,14 +1,17 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { loadProjectConfig, type IngestDocumentInput, type IngestionJob, type LightRagAdapter, type MetadataRepository, type ProjectConfig } from "../index.js";
+import { loadProjectConfig, type CanonicalDocumentChunk, type IngestDocumentInput, type IngestionJob, type LightRagAdapter, type MetadataRepository, type ProjectConfig } from "../index.js";
 import { PlatformError } from "../errors/platform-error.js";
 import { IdExtractor, IdRegistryService } from "./id-registry-service.js";
 import { ProjectWorkspaceService } from "./project-workspace-service.js";
+import { ChunkingStrategySelector } from "./ingestion-chunking/chunking-strategy-selector.js";
+import type { RawIngestDocumentContext } from "./ingestion-chunking/ingestion-chunking-types.js";
 
 export class IngestionService {
   private readonly extractor = new IdExtractor();
   private readonly ids: IdRegistryService;
+  private readonly chunking = new ChunkingStrategySelector();
 
   constructor(
     private readonly workspaces: ProjectWorkspaceService,
@@ -73,18 +76,45 @@ export class IngestionService {
       await this.repository.markStaleRegistryEntriesExceptPaths?.(project_id, existing, "moved");
     }
     const config = loadProjectConfig(workspace.rootPath);
-    const documents = existing.map((path): IngestDocumentInput => {
+    const documents: IngestDocumentInput[] = [];
+    const chunkWarnings: string[] = [];
+    for (const path of existing) {
       const content = readFileSync(resolve(workspace.rootPath, path), "utf8");
-      const ids = this.extractor.extractIdsFromMarkdown(content, path, config.ids);
-      return {
+      const idEntries = this.extractor.extractIdsFromMarkdown(content, path, config.ids);
+      const stable_ids = Array.from(new Set(idEntries.flatMap((entry) => [entry.stable_id, ...(entry.aliases ?? [])])));
+      const heading = idEntries.find((entry) => entry.heading)?.heading ?? firstHeading(content);
+      const ctx: RawIngestDocumentContext = {
+        project_id,
         path,
         content,
-        stable_ids: Array.from(new Set(ids.flatMap((entry) => [entry.stable_id, ...(entry.aliases ?? [])]))),
-        heading: ids.find((entry) => entry.heading)?.heading ?? firstHeading(content)
+        idEntries,
+        heading,
+        stable_ids,
+        indexing: config.indexing
       };
+      const strategy = this.chunking.select(path);
+      const prepared = strategy.chunk(ctx);
+      if (!prepared.length) chunkWarnings.push(`No chunks produced for path: ${path}`);
+      documents.push(...prepared);
+    }
+    const extracted = existing.flatMap((path) => {
+      const content = readFileSync(resolve(workspace.rootPath, path), "utf8");
+      return this.extractor.extractIdsFromMarkdown(content, path, config.ids);
     });
-    const extracted = documents.flatMap((document) => this.extractor.extractIdsFromMarkdown(document.content, document.path, config.ids));
     const registryResult = await this.ids.mergeIntoRegistry(project_id, extracted, { replaceSourcePaths: existing });
+    const now = new Date().toISOString();
+    const metadataChunks = this.buildMetadataChunksFromDocuments(project_id, existing, documents, now);
+    if (existing.length) await this.repository.markStaleDocumentChunksForPaths(project_id, existing, "replaced");
+    if (metadataChunks.length) {
+      try {
+        await this.repository.saveChunks(project_id, metadataChunks);
+      } catch (err) {
+        throw new PlatformError("INTERNAL_ERROR", "Failed to persist document chunks to platform metadata.", {
+          project_id,
+          details: { cause: err instanceof Error ? err.message : String(err) }
+        });
+      }
+    }
     const ingestResult = await this.lightrag.ingestPaths(project_id, existing, mode, documents);
     const job: IngestionJob = {
       job_id: randomUUID(),
@@ -95,7 +125,7 @@ export class IngestionService {
       requires_confirmation,
       files_scanned: paths.length,
       files_indexed: ingestResult.indexed,
-      warnings: [...registryResult.warnings, ...ingestResult.warnings, ...missing.map((path) => `Marked stale because file is missing: ${path}`)],
+      warnings: [...registryResult.warnings, ...ingestResult.warnings, ...chunkWarnings, ...missing.map((path) => `Marked stale because file is missing: ${path}`)],
       errors: [],
       started_at: started,
       completed_at: new Date().toISOString()
@@ -103,10 +133,56 @@ export class IngestionService {
     await this.repository.saveJob(job);
     return job;
   }
+
+  private buildMetadataChunksFromDocuments(project_id: string, paths: string[], documents: IngestDocumentInput[], now: string): CanonicalDocumentChunk[] {
+    const byPath = new Map<string, IngestDocumentInput[]>();
+    for (const document of documents) {
+      const list = byPath.get(document.path) ?? [];
+      list.push(document);
+      byPath.set(document.path, list);
+    }
+    const chunks: CanonicalDocumentChunk[] = [];
+    for (const path of paths) {
+      const docs = byPath.get(path);
+      if (!docs?.length) continue;
+      for (const document of docs) {
+        const content = document.content;
+        chunks.push({
+          project_id,
+          chunk_id: document.chunk_id ?? randomUUID(),
+          source_path: path,
+          heading: document.heading ?? firstHeading(content),
+          stable_ids: document.stable_ids ?? [],
+          content,
+          document_type: documentTypeForIngestPath(path),
+          domain: "metadata",
+          status: "current",
+          created_at: now,
+          updated_at: now,
+          chunk_kind: document.chunk_kind,
+          chunk_index: document.chunk_index,
+          chunk_total: document.chunk_total,
+          line_start: document.line_start,
+          line_end: document.line_end,
+          content_hash: document.content_hash
+        });
+      }
+    }
+    return chunks;
+  }
 }
 
 function firstHeading(content: string): string | undefined {
   return content.split(/\r?\n/).find((line) => line.startsWith("# "))?.replace(/^#\s+/, "");
+}
+
+function documentTypeForIngestPath(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.includes("prd")) return "prd";
+  if (lower.includes("srs")) return "srs";
+  if (lower.includes("test")) return "test";
+  if (/\.(ts|tsx|js|jsx|php|blade\.php)$/.test(lower)) return "code";
+  return "doc";
 }
 
 function listIndexableFiles(root: string, config: ProjectConfig): string[] {

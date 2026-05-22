@@ -136,6 +136,14 @@ export class SqliteMetadataRepository implements MetadataRepository {
       .map((entry) => ({ ...entry, status: "stale", stale_reason: reason as IdRegistryEntry["stale_reason"], last_seen_at: new Date().toISOString() })));
   }
 
+  async markStaleDocumentChunksForPaths(project_id: string, paths: string[], reason = "replaced"): Promise<void> {
+    const chunks = await this.listChunks(project_id);
+    const stale = chunks
+      .filter((chunk) => paths.includes(chunk.source_path) && chunk.status === "current")
+      .map((chunk) => ({ ...chunk, status: "stale" as const, stale_reason: reason, updated_at: new Date().toISOString() }));
+    if (stale.length) await this.saveChunks(project_id, stale);
+  }
+
   async markStaleRegistryEntriesExceptPaths(project_id: string, activePaths: string[], reason = "moved"): Promise<void> {
     const active = new Set(activePaths);
     const registry = await this.listRegistryEntries(project_id);

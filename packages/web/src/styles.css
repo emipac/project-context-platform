@@ -189,8 +189,118 @@ section {
   margin-bottom: 14px;
 }
 
-.search input {
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.search-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.search-row input {
   flex: 1;
+  border: 1px solid #c9d3df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #243447;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.search-row input:disabled {
+  opacity: 0.72;
+}
+
+.btn-search {
+  min-width: 112px;
+  flex-shrink: 0;
+}
+
+.search-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.search-filters-grid label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.search-filters-grid select,
+.search-filters-grid input,
+.search-advanced-grid input {
+  border: 1px solid #c9d3df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #243447;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.search-filters-grid small {
+  font-weight: 400;
+  color: #66788a;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.search-prefixes {
+  grid-column: 1 / -1;
+}
+
+.search-checkbox-group {
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+  margin: 0;
+  padding: 10px 12px 12px;
+}
+
+.search-checkbox-group legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #243447;
+}
+
+.search-checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.search-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #243447;
+  cursor: pointer;
+  user-select: none;
+}
+
+.search-advanced-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.search-advanced-grid {
+  margin-top: -4px;
+}
+
+.search-loading {
+  margin: 0;
 }
 
 .info-grid {
@@ -396,6 +506,22 @@ pre {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+}
+
+.storage-health-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+  color: #66788a;
+  font-size: 13px;
+}
+
+.storage-health-meta span {
+  border: 1px solid #d8e0e8;
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 4px 10px;
 }
 
 .panel-toolbar {

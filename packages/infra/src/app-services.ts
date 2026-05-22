@@ -43,7 +43,7 @@ export function createAppServices() {
     ingestion: new IngestionService(workspaces, lightrag, repository),
     retrieval: new RetrievalService(workspaces, lightrag),
     memory: new TemporalMemoryService(workspaces, graphiti),
-    composer: new ContextComposerService(workspaces, lightrag, graphiti),
+    composer: new ContextComposerService(workspaces, lightrag, graphiti, repository, contextObservability),
     validation: new ValidationService(workspaces),
     observability: new ObservabilityService(toolCalls),
     spddTrace: new SpddTraceService(workspaces, repository, graphiti, toolCalls, lightrag)

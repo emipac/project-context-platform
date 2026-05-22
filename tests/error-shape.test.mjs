@@ -15,6 +15,8 @@ test("backend HTTP contract documents LightRAG, Graphiti, and local fallback", (
   assert.match(contract, /Graphiti/);
   assert.match(contract, /PCP_ADAPTER_MODE=local/);
   assert.match(contract, /x-project-id/);
+  assert.match(contract, /\/v1\/documents/);
+  assert.match(contract, /\/v1\/storage\/health/);
 });
 
 test("project catalog defaults to root catalog and de-dupes by project id", () => {
@@ -113,12 +115,29 @@ test("sidecar core modes are explicit and health reports capabilities", () => {
   }
   assert.match(routes, /sidecars/);
   assert.match(lightrag, /create_lightrag_engine/);
+  assert.match(lightrag, /project_id: str \| None = Query/);
   assert.match(lightragEngine, /CoreLightRagEngine/);
   assert.match(lightragEngine, /ContractLightRagEngine/);
   assert.match(graphiti, /create_graphiti_engine/);
   assert.match(graphitiEngine, /CoreGraphitiEngine/);
   assert.match(graphitiEngine, /ContractGraphitiEngine/);
   assert.match(graphitiEngine, /group_id/);
+});
+
+test("Document Index API delegates to adapter listing instead of search", () => {
+  const routes = readFileSync(new URL("../packages/api/src/routes.ts", import.meta.url), "utf8");
+  const adapters = readFileSync(new URL("../packages/core/src/ports/adapters.ts", import.meta.url), "utf8");
+  const local = readFileSync(new URL("../packages/infra/src/local-lightrag-adapter.ts", import.meta.url), "utf8");
+  const http = readFileSync(new URL("../packages/infra/src/http/lightrag-http-adapter.ts", import.meta.url), "utf8");
+  assert.match(adapters, /listDocuments\(project_id: string/);
+  assert.match(adapters, /getStorageHealth\(project_id\?: string/);
+  assert.match(routes, /services\.lightrag\.listDocuments/);
+  assert.doesNotMatch(routes, /searchDocs\(project_id, "", \{ limit: lim \}\)/);
+  assert.match(local, /async listDocuments/);
+  assert.match(http, /"\/v1\/documents"/);
+  assert.match(http, /healthPath}\?project_id=/);
+  assert.match(local, /async getStorageHealth/);
+  assert.match(http, /\/v1\/storage\/health/);
 });
 
 test("HTTP client accepts FastAPI detail-wrapped contract errors", () => {

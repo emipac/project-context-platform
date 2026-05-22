@@ -4,6 +4,9 @@ export type JobStatus = "queued" | "running" | "completed" | "failed" | "blocked
 export type IdCategory = "REQ" | "TASK" | "ADR" | "DEC" | "REQCHG" | "REV" | "IMPL" | "AC" | "NFR" | "DP";
 export type RegistryEntryStatus = "current" | "stale" | "duplicate";
 export type ChunkStatus = "current" | "stale";
+
+/** Granular ingest chunk classifier (Markdown strategies); optional on file-level chunks. */
+export type ChunkKind = "file" | "markdown_section" | "stable_id_anchor" | "markdown_table_row";
 export type MemoryEventType = "decision" | "requirement_change" | "review_finding" | "implementation_summary" | "approval";
 export type EventStatus = "current" | "superseded" | "deprecated";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "needs_changes";
@@ -98,6 +101,17 @@ export interface IdRegistryEntry {
   last_seen_at: string;
 }
 
+/** Runtime process snapshot for `/health` and MCP diagnostics (additive fields allowed). */
+export interface RuntimeIdentityDTO {
+  generated_at: string;
+  node_version: string;
+  platform: string;
+  pid: number;
+  cwd?: string;
+  adapter_mode: string;
+  build_revision?: string;
+}
+
 export interface CanonicalDocumentChunk {
   project_id: string;
   chunk_id: string;
@@ -111,6 +125,12 @@ export interface CanonicalDocumentChunk {
   stale_reason?: string;
   created_at: string;
   updated_at: string;
+  chunk_kind?: ChunkKind;
+  chunk_index?: number;
+  chunk_total?: number;
+  line_start?: number;
+  line_end?: number;
+  content_hash?: string;
 }
 
 export interface ToolCallLogEntry {
@@ -133,10 +153,16 @@ export interface StructuredPlatformError {
   retryable: boolean;
 }
 
+export type RetrievalMode = "fast" | "semantic" | "deep";
+
 export interface FeatureContextRequestDTO {
   feature_name: string;
   optional_requirement_ids?: string[];
   optional_task_id?: string;
+  retrieval_mode?: RetrievalMode;
+  document_types?: string[];
+  source_path_prefixes?: string[];
+  chunk_kinds?: string[];
 }
 
 export interface FeatureContextResponseDTO {
@@ -155,6 +181,41 @@ export interface FeatureContextResponseDTO {
   implementation_checklist: unknown[];
   traceability: unknown[];
   warnings?: string[];
+}
+
+/** MCP / REST input for `validate_against_specs`; fields are additive for backward compatibility. */
+export interface ValidateAgainstSpecsInput {
+  plan?: string;
+  diff?: string;
+  requirement_ids?: string[];
+  artifact_path?: string;
+  changed_files?: string[];
+  source_paths?: string[];
+  mode?: "fast" | "strict";
+}
+
+export type ValidationFindingSeverity = "info" | "warning" | "error";
+
+export interface ValidationFinding {
+  severity: ValidationFindingSeverity;
+  code: string;
+  message: string;
+  evidence?: unknown[];
+}
+
+export type ValidationConfidence = "low" | "medium" | "high";
+
+/** Structured evidence-style validation result (deterministic; still heuristic overall). */
+export interface ValidateAgainstSpecsResult {
+  project_id: string;
+  valid: boolean;
+  confidence: ValidationConfidence;
+  heuristic: true;
+  checked_requirement_ids: string[];
+  checked_sources: string[];
+  findings: ValidationFinding[];
+  missing_evidence: string[];
+  warnings: string[];
 }
 
 export interface MemoryReviewPreviewDTO {

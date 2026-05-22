@@ -1,4 +1,5 @@
 import type { createAppServices } from "@pcp/infra";
+import { createRuntimeIdentity } from "@pcp/infra";
 import {
   PlatformError,
   clampContextGraphEdgeLimit,
@@ -14,7 +15,7 @@ import {
   type StableIdLookupFilter
 } from "@pcp/core";
 import { mcpToolWrapper } from "./tool-wrapper.js";
-import { previewChunks, withClampedLimit } from "./preview.js";
+import { previewChunks, retrievalBudgetFromToolInput } from "./preview.js";
 import { getDocumentationGuidelines } from "./documentation-guidelines.js";
 
 type Services = ReturnType<typeof createAppServices>;
@@ -23,13 +24,23 @@ type Handler = (input: Record<string, unknown>) => Promise<unknown>;
 export function registerAllTools(services: Services): Record<string, Handler> {
   const wrap = (name: string, handler: Handler) => mcpToolWrapper(name, services.toolCalls, handler);
   return {
-    search_docs: wrap("search_docs", async (input) => previewChunks(await services.retrieval.searchDocs(input.project_id as string | undefined, String(input.query), withClampedLimit(input)))),
+    search_docs: wrap("search_docs", async (input) =>
+      previewChunks(await services.retrieval.searchDocs(input.project_id as string | undefined, String(input.query), retrievalBudgetFromToolInput(input)))
+    ),
     get_document: wrap("get_document", (input) => services.retrieval.getDocument(input.project_id as string | undefined, {
       chunk_id: input.chunk_id as string | undefined,
       source_path: input.source_path as string | undefined
     })),
     get_spec_context: wrap("get_spec_context", (input) => services.retrieval.getSpecContext(input.project_id as string | undefined, String(input.spec_id), Boolean(input.include_neighbors))),
-    get_related_code: wrap("get_related_code", async (input) => previewChunks(await services.retrieval.getRelatedCode(input.project_id as string | undefined, String(input.feature_name ?? input.requirement_id ?? ""), withClampedLimit(input)))),
+    get_related_code: wrap("get_related_code", async (input) =>
+      previewChunks(
+        await services.retrieval.getRelatedCode(
+          input.project_id as string | undefined,
+          String(input.feature_name ?? input.requirement_id ?? ""),
+          retrievalBudgetFromToolInput(input)
+        )
+      )
+    ),
     get_requirement_sources: wrap("get_requirement_sources", async (input) => previewChunks(await services.retrieval.getRequirementSources(input.project_id as string | undefined, String(input.requirement_id)))),
     get_documentation_guidelines: wrap("get_documentation_guidelines", (input) => getDocumentationGuidelines(services, input)),
     remember_decision: wrap("remember_decision", (input) => services.memory.commitLowRisk(String(input.project_id), { type: "decision", ...input })),
@@ -41,7 +52,11 @@ export function registerAllTools(services: Services): Record<string, Handler> {
     prepare_feature_context: wrap("prepare_feature_context", (input) => services.composer.prepareFeatureContext(input.project_id as string | undefined, {
       feature_name: String(input.feature_name),
       optional_requirement_ids: input.requirement_ids as string[] | undefined,
-      optional_task_id: input.task_id as string | undefined
+      optional_task_id: input.task_id as string | undefined,
+      retrieval_mode: input.retrieval_mode as "fast" | "semantic" | "deep" | undefined,
+      document_types: input.document_types as string[] | undefined,
+      source_path_prefixes: input.source_path_prefixes as string[] | undefined,
+      chunk_kinds: input.chunk_kinds as string[] | undefined
     })),
     prepare_review_context: wrap("prepare_review_context", (input) => services.composer.prepareReviewContext(input.project_id as string | undefined, {
       changed_files: input.changed_files as string[] | undefined,
@@ -50,7 +65,11 @@ export function registerAllTools(services: Services): Record<string, Handler> {
     validate_against_specs: wrap("validate_against_specs", (input) => services.composer.validateAgainstSpecs(input.project_id as string | undefined, {
       plan: input.plan as string | undefined,
       diff: input.diff as string | undefined,
-      requirement_ids: input.requirement_ids as string[] | undefined
+      requirement_ids: input.requirement_ids as string[] | undefined,
+      artifact_path: input.artifact_path as string | undefined,
+      changed_files: input.changed_files as string[] | undefined,
+      source_paths: input.source_paths as string[] | undefined,
+      mode: input.mode as "fast" | "strict" | undefined
     })),
     get_context_freshness: wrap("get_context_freshness", (input) =>
       services.contextObservability.getFreshnessReport(input.project_id as string | undefined, observabilityFilter(input, false))
@@ -76,7 +95,8 @@ export function registerAllTools(services: Services): Record<string, Handler> {
     sync_spdd_artifacts: wrap("sync_spdd_artifacts", (input) => services.spddTrace.syncArtifacts(input.project_id as string | undefined)),
     record_spdd_run: wrap("record_spdd_run", (input) => services.spddTrace.recordRun(input.project_id as string | undefined, toRecordSpddRun(input))),
     list_spdd_trace: wrap("list_spdd_trace", (input) => services.spddTrace.listTrace(input.project_id as string | undefined, spddTraceFilters(input))),
-    lookup_spdd_trace: wrap("lookup_spdd_trace", (input) => services.spddTrace.lookupByTarget(input.project_id as string | undefined, spddTraceFilters(input)))
+    lookup_spdd_trace: wrap("lookup_spdd_trace", (input) => services.spddTrace.lookupByTarget(input.project_id as string | undefined, spddTraceFilters(input))),
+    platform_runtime: wrap("platform_runtime", async () => createRuntimeIdentity(services.adapterMode))
   };
 }
 

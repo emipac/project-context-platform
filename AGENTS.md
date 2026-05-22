@@ -10,6 +10,7 @@ Use tools in this order when the question is about this project:
 
 2. `prepare_feature_context`
    - Use for feature, implementation, or architecture questions where the developer names a feature, capability, task, or requirement area.
+   - Defaults to **`retrieval_mode: fast`** (exact IDs + manifest/keyword + memory only). Use `semantic` or `deep` only when you need scoped LightRAG after narrowing; **`deep` runs docs and code semantic retrieval in parallel** so latency stays within one semantic timeout budget.
    - Prefer this before ad hoc searches because it composes docs, memory, related sources, and traceability.
 
 3. `get_spec_context` / `get_requirement_sources`
@@ -23,6 +24,9 @@ Use tools in this order when the question is about this project:
 5. `search_docs`
    - Use for broad discovery only after exact context and memory tools do not fully answer the question.
    - Keep queries specific and prefer returned stable IDs and source paths as follow-up anchors.
+   - Broad `search_docs` is for canonical context discovery; results apply source-diversity ranking (at most two chunks per `source_path` before the final limit).
+   - For implementation lookup, prefer `get_related_code` or scoped `search_docs` with `document_types` / `source_path_prefixes`, then read source files from disk.
+   - `get_document` on code paths returns compact summary cards (`path`, `basename`, `path_tokens`, `primary_symbol`, symbols, hash)—not full source; read the file on disk to edit implementation.
 
 6. `lookup_spdd_trace` / `list_spdd_trace`
    - Use when the question involves SPDD prompts, REASONS Canvas work, implementation history, changed files, traceability, or "which prompt worked on this?"
@@ -64,6 +68,7 @@ Before editing code, use PCP MCP tools in this order:
 4. `prepare_feature_context`
    - Use the feature name from the REASONS prompt.
    - Include explicit requirement IDs or task IDs from the prompt when present.
+   - Default composer mode is **`fast`**. Use **`semantic` or `deep`** only when cheap context is not enough; **`deep`** issues two semantic calls concurrently (docs + code) within one timeout window.
 
 5. `get_spec_context` / `get_requirement_sources`
    - For each explicit requirement, ADR, task, or acceptance criterion referenced by the prompt, retrieve exact context.

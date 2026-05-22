@@ -730,7 +730,7 @@ Core routes:
 | `POST /api/projects/:project_id/ingest` | Full ingestion |
 | `POST /api/projects/:project_id/ingest/changed` | Changed-file ingestion |
 | `GET /api/projects/:project_id/ingestion/status` | Recent or specific ingestion jobs |
-| `GET /api/projects/:project_id/documents` | List indexed chunks (`include_stale=true` reads SQLite chunks including stale rows) |
+| `GET /api/projects/:project_id/documents` | List indexed chunks through the active LightRAG adapter with `status`, `chunk_kind`, pagination, and sorting filters |
 | `POST /api/projects/:project_id/search` | Search docs |
 | `GET /api/projects/:project_id/specs/:stable_id` | Exact spec context by stable ID or alias |
 | `GET /api/projects/:project_id/ids` | List ID registry |
@@ -756,7 +756,7 @@ Memory and context routes:
 | `GET /api/projects/:project_id/context/freshness` | Derived freshness report from SQLite metadata (optional `changed_file_detection`, `include_stale`) |
 | `GET /api/projects/:project_id/context/quality` | Deterministic quality metrics |
 | `GET /api/projects/:project_id/context/graph` | Bounded derived graph (`limit`, comma-separated `types`, `include_stale`) |
-| `POST /api/projects/:project_id/validate` | Validate plan or diff against specs |
+| `POST /api/projects/:project_id/validate` | Evidence-oriented validation of `plan` / `diff` (optional `requirement_ids`, `artifact_path`, `changed_files`, `source_paths`, `mode`: `fast` \| `strict`); returns `findings`, `missing_evidence`, `confidence`, `warnings` (`heuristic: true`) |
 | `GET /api/projects/:project_id/memory/facts` | Current memory facts |
 | `GET /api/projects/:project_id/memory/history` | Memory history |
 | `POST /api/projects/:project_id/memory/decisions` | Write decision |
@@ -779,11 +779,11 @@ Discovery and retrieval:
 
 | Tool | Purpose |
 | --- | --- |
-| `search_docs` | Search docs, returns previews only |
-| `get_document` | Retrieve full chunk content by `chunk_id` or `source_path` |
+| `search_docs` | Broad canonical discovery; **preview rows** with optional LightRAG budgets. Results use source-diversity ranking (max **2** chunks per `source_path` before final limit). For implementation files, prefer scoped search or `get_related_code`. |
+| `get_document` | Retrieve indexed chunk text by `chunk_id` or `source_path` (Markdown: substantive sections; non-Markdown code/config: lightweight summary card with `basename`, `path_tokens`, `primary_symbol`, symbols, hash—open workspace file for full source). Returns full `CanonicalDocumentChunk[]` (no preview wrapper). |
 | `get_spec_context` | Retrieve full context by stable ID, alias, or path |
-| `get_related_code` | Search related source/test chunks, returns previews |
-| `get_requirement_sources` | Find chunks tied to a requirement, returns previews |
+| `get_related_code` | Code/test candidate discovery; same preview + budget behavior as `search_docs`. Preferred for implementation lookup after narrowing terms. Query text comes from `feature_name` or `requirement_id`. |
+| `get_requirement_sources` | Find chunks tied to a requirement; returns previews |
 | `get_documentation_guidelines` | Return project documentation and stable-ID guidance |
 
 Memory:
@@ -803,12 +803,19 @@ Workflow:
 | Tool | Purpose |
 | --- | --- |
 | `prepare_feature_context` | Gather implementation context |
-| `prepare_review_context` | Gather review context |
-| `validate_against_specs` | Validate plan/diff |
-| `ingest_changed_files` | Index changed project files |
+| `prepare_review_context` | Gather review context (`changed_files`, `diff` only—no separate requirement list parameter at MCP today) |
+| `validate_against_specs` | Same contract as `POST .../validate`: deterministic checks against indexed specs, path/trace metadata, freshness signals, and memory overlap hints—not formal proof |
+| `ingest_changed_files` | Index changed project files (`project_id`, optional `paths`) |
 | `ingest_document` | Index one document |
 | `get_ingestion_status` | Read ingestion jobs |
 | `validate_ids` | Find duplicate IDs |
+| `list_stable_ids` | Read-only registry listing with optional filters |
+
+Diagnostics:
+
+| Tool | Purpose |
+| --- | --- |
+| `platform_runtime` | Returns `RuntimeIdentityDTO` (Node version, platform, pid, cwd, `adapter_mode`, optional `build_revision` env); ignores LightRAG |
 
 Context observability (derived SQLite read models, not LightRAG):
 
@@ -823,9 +830,9 @@ SPDD trace registry:
 | Tool | Purpose |
 | --- | --- |
 | `sync_spdd_artifacts` | Refresh artifact catalog from `spdd/prompt`, `analysis`, `plan`, `review` |
-| `record_spdd_run` | Record a run plus optional links to stable IDs, paths, chunks, feature refs |
-| `list_spdd_trace` | List artifacts, runs, and links with optional filters |
-| `lookup_spdd_trace` | Reverse lookup trace targets into linked runs and artifacts |
+| `record_spdd_run` | Record a run plus optional links; **`summary` required**, max **1000** characters |
+| `list_spdd_trace` | List artifacts, runs, and links with optional filters (`run_id`, `artifact_path`, `target_*`, etc.) |
+| `lookup_spdd_trace` | Reverse lookup by `stable_id`, `source_path`, `chunk_id`, `feature_ref`, or **`target_type` + `target_id`** — does **not** accept `link_id` |
 
 Broad search tools intentionally return compact previews:
 
@@ -833,7 +840,9 @@ Broad search tools intentionally return compact previews:
 - `search_docs` max limit: 10
 - `get_related_code` default limit: 5
 - `get_related_code` max limit: 10
-- Full content requires `get_document` or `get_spec_context`
+- `/v1/search` source-diversity ranking: max **2** chunks per `source_path` in the first pass, then backfill to `limit`
+- Broad `search_docs` is for canonical context discovery; use `get_related_code` or scoped search (`document_types`, `source_path_prefixes`) for implementation lookup
+- Full substantive document text for Markdown still uses `get_document` or `get_spec_context`; indexed **source files** expose summary cards only (`basename`, `path_tokens`, `primary_symbol`, symbols, hash)—read the repo file for exact code
 
 Code:
 

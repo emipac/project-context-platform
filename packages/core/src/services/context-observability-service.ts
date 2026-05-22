@@ -106,6 +106,19 @@ export class ContextObservabilityService {
       });
     }
 
+    const completedJobs = snap.jobs.filter((j) => j.status === "completed");
+    const currentChunkRows = snap.chunks.filter((c) => c.status === "current");
+    if (completedJobs.length > 0 && currentChunkRows.length === 0) {
+      signals.push({
+        code: "metadata_empty_after_completed_ingestion",
+        severity: "warning",
+        confidence: "heuristic",
+        evidence_type: "metadata",
+        message: "Ingestion jobs completed but SQLite has no current document chunks — metadata indexing may be misconfigured or stale.",
+        count: 1
+      });
+    }
+
     const lastCompleted = snap.jobs
       .filter((j) => j.status === "completed" && j.completed_at)
       .sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)))[0];

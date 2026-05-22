@@ -1,24 +1,55 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { createAppServices } from "@pcp/infra";
+import { createRuntimeIdentity } from "@pcp/infra";
 import { loadProjectConfig, PlatformError, clampContextGraphEdgeLimit, CONTEXT_GRAPH_NODE_TYPES, type ContextObservabilityFilter, type SpddTraceFilter, normalizeContextGraphNodeType, normalizeContextGraphRootType, normalizeContextGraphQueryMode, normalizeContextGraphOrdering, splitCommaQuery } from "@pcp/core";
 
 type Services = ReturnType<typeof createAppServices>;
 
+const lightragSearchBudgetSchema = z.object({
+  query: z.string(),
+  limit: z.number().optional(),
+  document_types: z.array(z.string()).optional(),
+  source_path_prefixes: z.array(z.string()).optional(),
+  chunk_kinds: z.array(z.string()).optional(),
+  query_mode: z.enum(["naive", "local", "hybrid", "mix", "global"]).optional(),
+  top_k: z.number().optional(),
+  chunk_top_k: z.number().optional(),
+  max_total_tokens: z.number().optional(),
+  timeout_ms: z.number().optional(),
+  retries: z.number().optional()
+});
+
 export async function registerRoutes(app: FastifyInstance, services: Services): Promise<void> {
-  app.get("/health", async () => {
+  app.get("/health", async (request) => {
+    const project_id = query(request).project_id;
     const [lightragHealth, graphitiHealth] = await Promise.all([
-      sidecarHealth(() => services.lightrag.getHealth()),
-      sidecarHealth(() => services.graphiti.getHealth())
+      sidecarHealth(() => services.lightrag.getHealth(project_id)),
+      sidecarHealth(() => services.graphiti.getHealth(project_id))
     ]);
     const lightragOk = lightragHealth.reachable && lightragHealth.status === "ok";
     const graphitiOk = graphitiHealth.reachable && graphitiHealth.status === "ok";
+    const runtime = createRuntimeIdentity(services.adapterMode);
+    let metadata_readiness:
+      | { metadata_chunks_current_count: number; ingestion_jobs_completed_count: number }
+      | undefined;
+    if (project_id?.trim()) {
+      const pid = project_id.trim();
+      const chunks = await services.repository.listChunks(pid);
+      const jobs = await services.repository.listRecentJobs(pid);
+      metadata_readiness = {
+        metadata_chunks_current_count: chunks.filter((c) => c.status === "current").length,
+        ingestion_jobs_completed_count: jobs.filter((j) => j.status === "completed").length
+      };
+    }
     return {
       status: lightragOk && graphitiOk ? "ok" : "degraded",
       adapter_mode: services.adapterMode,
       sqlite: true,
       lightrag: lightragOk,
       graphiti: graphitiOk,
+      runtime,
+      ...(metadata_readiness ? { metadata_readiness } : {}),
       sidecars: {
         lightrag: lightragHealth,
         graphiti: graphitiHealth
@@ -61,17 +92,12 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
   app.get("/api/projects/:project_id/ingestion/status", async (request) => services.ingestion.getIngestionStatus(params(request).project_id, query(request).job_id));
   app.get("/api/projects/:project_id/documents", async (request) => {
     const project_id = params(request).project_id;
-    const q = query(request);
-    const lim = Math.min(500, Math.max(1, Number(q.limit ?? 200)));
-    if (q.include_stale === "true") {
-      const chunks = await services.repository.listChunks(project_id);
-      return chunks.slice(0, lim);
-    }
-    return services.retrieval.searchDocs(project_id, "", { limit: lim });
+    return services.lightrag.listDocuments(project_id, documentIndexOptionsFromQuery(query(request)));
   });
   app.post("/api/projects/:project_id/search", async (request) => {
-    const body = z.object({ query: z.string(), limit: z.number().optional(), document_types: z.array(z.string()).optional() }).parse(request.body);
-    return services.retrieval.searchDocs(params(request).project_id, body.query, body);
+    const body = lightragSearchBudgetSchema.parse(request.body);
+    const { query: qtext, ...budget } = body;
+    return services.retrieval.searchDocs(params(request).project_id, qtext, budget);
   });
   app.get("/api/projects/:project_id/specs/:stable_id", async (request) => services.retrieval.getSpecContext(params(request).project_id, params(request).stable_id, query(request).include_neighbors === "true"));
   app.get("/api/projects/:project_id/ids", async (request) => {
@@ -86,7 +112,11 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
   app.post("/api/projects/:project_id/context/feature", async (request) => services.composer.prepareFeatureContext(params(request).project_id, z.object({
     feature_name: z.string(),
     optional_requirement_ids: z.array(z.string()).optional(),
-    optional_task_id: z.string().optional()
+    optional_task_id: z.string().optional(),
+    retrieval_mode: z.enum(["fast", "semantic", "deep"]).optional(),
+    document_types: z.array(z.string()).optional(),
+    source_path_prefixes: z.array(z.string()).optional(),
+    chunk_kinds: z.array(z.string()).optional()
   }).parse(request.body)));
   app.post("/api/projects/:project_id/context/review", async (request) => services.composer.prepareReviewContext(params(request).project_id, z.object({
     changed_files: z.array(z.string()).optional(),
@@ -98,10 +128,25 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
     services.contextObservability.getQualityMetrics(params(request).project_id, parseContextObsFilter(query(request), false)));
   app.get("/api/projects/:project_id/context/graph", async (request) =>
     services.contextObservability.getContextGraph(params(request).project_id, parseContextObsFilter(query(request), true)));
+  app.get("/api/projects/:project_id/storage/health", async (request) => {
+    const project_id = params(request).project_id;
+    const q = query(request);
+    if (q.project_id && q.project_id !== project_id) {
+      throw new PlatformError("VALIDATION_ERROR", "Storage health project_id query must match the route project_id.", {
+        project_id,
+        details: { query_project_id: q.project_id }
+      });
+    }
+    return services.lightrag.getStorageHealth(project_id, q.deep !== "false");
+  });
   app.post("/api/projects/:project_id/validate", async (request) => services.composer.validateAgainstSpecs(params(request).project_id, z.object({
     plan: z.string().optional(),
     diff: z.string().optional(),
-    requirement_ids: z.array(z.string()).optional()
+    requirement_ids: z.array(z.string()).optional(),
+    artifact_path: z.string().optional(),
+    changed_files: z.array(z.string()).optional(),
+    source_paths: z.array(z.string()).optional(),
+    mode: z.enum(["fast", "strict"]).optional()
   }).parse(request.body ?? {})));
   app.get("/api/projects/:project_id/memory", async (request) => services.graphiti.getHistory(params(request).project_id, "", true));
   app.get("/api/projects/:project_id/memory/facts", async (request) => services.memory.getCurrentFacts(params(request).project_id, String(query(request).topic ?? "")));
@@ -135,6 +180,10 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
 
 const spddArtifactTypeSchema = z.enum(["prompt", "analysis", "plan", "review", "unknown"]);
 const spddTargetTypeSchema = z.enum(["stable_id", "source_path", "chunk", "feature", "tool_call", "memory_event"]);
+const documentIndexStatusSchema = z.enum(["current", "stale", "all"]);
+const documentIndexChunkKindSchema = z.enum(["file", "markdown_section", "stable_id_anchor", "markdown_table_row"]);
+const documentIndexOrderBySchema = z.enum(["updated_at", "created_at", "source_path", "chunk_index"]);
+const documentIndexOrderSchema = z.enum(["asc", "desc"]);
 
 const recordSpddRunBody = z.object({
   artifact_id: z.string().optional(),
@@ -159,6 +208,29 @@ function parseSpddLimit(raw: string | undefined): number | undefined {
   const n = Number(raw);
   if (!Number.isFinite(n)) return undefined;
   return Math.min(200, Math.max(1, n));
+}
+
+function parseDocumentIndexLimit(raw: string | undefined): number {
+  const n = Number(raw ?? 50);
+  if (!Number.isFinite(n)) return 50;
+  return Math.min(500, Math.max(1, Math.floor(n)));
+}
+
+function parseDocumentIndexOffset(raw: string | undefined): number {
+  const n = Number(raw ?? 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.floor(n));
+}
+
+function documentIndexOptionsFromQuery(q: Record<string, string | undefined>) {
+  return {
+    limit: parseDocumentIndexLimit(q.limit),
+    offset: parseDocumentIndexOffset(q.offset),
+    status: q.status ? documentIndexStatusSchema.parse(q.status) : q.include_stale === "true" ? "all" as const : "current" as const,
+    chunk_kind: q.chunk_kind ? documentIndexChunkKindSchema.parse(q.chunk_kind) : undefined,
+    order_by: q.order_by ? documentIndexOrderBySchema.parse(q.order_by) : "updated_at" as const,
+    order: q.order ? documentIndexOrderSchema.parse(q.order) : "desc" as const
+  };
 }
 
 function spddTraceFilterFromQuery(q: Record<string, string | undefined>): SpddTraceFilter {

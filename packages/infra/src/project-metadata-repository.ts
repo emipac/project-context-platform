@@ -40,6 +40,10 @@ export class ProjectMetadataRepository implements MetadataRepository {
     await (await this.forProject(project_id)).markStaleChunksForPaths(project_id, paths, reason);
   }
 
+  async markStaleDocumentChunksForPaths(project_id: string, paths: string[], reason?: string): Promise<void> {
+    await (await this.forProject(project_id)).markStaleDocumentChunksForPaths(project_id, paths, reason);
+  }
+
   async markStaleRegistryEntriesExceptPaths(project_id: string, activePaths: string[], reason?: string): Promise<void> {
     await (await this.forProject(project_id)).markStaleRegistryEntriesExceptPaths(project_id, activePaths, reason);
   }
